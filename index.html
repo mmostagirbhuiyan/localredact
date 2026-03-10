@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <meta name="theme-color" content="#07090E" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>LocalRedact | Browser-Native Document Redaction</title>
+  <meta name="description"
+    content="Redact PII from documents entirely in your browser. No uploads, no backend, no tracking. Your document never leaves your device." />
+  <meta property="og:title" content="LocalRedact | Browser-Native Document Redaction" />
+  <meta property="og:description"
+    content="Redact PII from documents entirely in your browser. No uploads, no backend, no tracking." />
+  <meta property="og:type" content="website" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+  <script>
+    (function() {
+      const stored = localStorage.getItem('lr-theme');
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const isDark = stored === 'dark' || (stored !== 'light' && prefersDark);
+      document.documentElement.classList.add(isDark ? 'dark' : 'light');
+    })();
+  </script>
+
+  <style>
+    html { background-color: #07090E; }
+    html.light { background-color: #F6F8FB; }
+  </style>
+</head>
+
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.tsx"></script>
+</body>
+
+</html>
