@@ -9,13 +9,15 @@
 6. Update Session State at END of each session
 
 ## Architecture
-React SPA. Two-phase PII detection: regex (instant) + Transformers.js ONNX NER (lazy-loaded ~30MB).
-PDF text extraction via pdfjs-dist. Redacted text output via plain text download.
-PDF redaction with black bars planned for v1.5. Hosted on Cloudflare Pages (static).
+React SPA. Multi-pass PII detection: regex (instant) + Transformers.js ONNX NER (lazy-loaded, WebGPU).
+PDF text extraction via pdfjs-dist with SmolVLM vision fallback for problematic PDFs.
+True PDF redaction via render-to-image pipeline (pdfjs canvas → black boxes → pdf-lib image-only PDF).
+Hosted on Cloudflare Pages (static). See ROADMAP.md for full v2 implementation plan.
 
 ## Tech Stack
-Vite | React 18 | TypeScript | Tailwind CSS v4 (PostCSS) | Transformers.js (@xenova/transformers)
+Vite | React 18 | TypeScript | Tailwind CSS v4 (PostCSS) | Transformers.js (@huggingface/transformers v3+)
 pdfjs-dist | pdf-lib | lucide-react | framer-motion
+Target models: Piiranha v1 (PII detection), SmolVLM-256M (vision fallback)
 
 ## Commands
 - `npm run dev` — Start dev server
@@ -55,19 +57,34 @@ Fonts: Space Grotesk (headings), Outfit (body). Dark-first, light mode supported
 ## Slash Commands
 | Command | Purpose |
 |---------|---------|
+| /sprint | Execute next ROADMAP.md task (one at a time, verify, approve, commit) |
 | /feature | Implement new feature |
 | /fix | Fix a bug |
 | /explore | Explore codebase |
 | /release | Cut a release |
 | /test | Write tests |
 
+### Sprint Usage
+```
+/sprint              # Pick up next unchecked task
+/sprint Phase 1      # Work on Phase 1 specifically
+/sprint 2.1          # Work on Phase 2, section 1
+/sprint --status     # Show progress across all phases
+/sprint --next       # Preview next task without starting
+```
+
 ## Dead Approaches
-<!-- Add as we learn -->
+- Content stream surgery via pdf-lib for redaction — too many edge cases, one miss = data leak. Use render-to-image.
+- bert-base-NER for PII — only 4 generic types. Piiranha v1 has 17 PII types at 98%+ accuracy.
+- pdfjs text extraction as sole text source — letter-spacing artifacts unsolvable. Vision model fallback needed.
+- Naive `.join(' ')` on pdfjs text items — produces "C O N T A C T U S". Use position-based grouping.
+- Gap thresholds (0.3x-1.5x char width) — can't disambiguate letter-spacing vs word gaps. Vision model is the answer.
 
 ## Session State
-Last Updated: 2026-03-10 | Session 1
-Current Status: Project initialized, all Phase 1 files created. Needs npm install + build verification.
-Next: Install deps, verify build, test regex detection, then Phase 2 (NER integration).
+Last Updated: 2026-03-10 | Session 2
+Current Status: v1 functional (regex + bert-base-NER). Research complete for v2 architecture.
+NER subword merging fixed (commit 6987cf3). PDF text extraction improved but has letter-spacing limits.
+Next: Phase 1 of ROADMAP.md — replace bert-base-NER with Piiranha v1, add WebGPU, multi-pass detection.
 
 ## Archived Sessions
 <!-- None yet -->

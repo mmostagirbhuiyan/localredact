@@ -2,3 +2,6 @@ node_modules
 dist
 .DS_Store
 *.local
+.playwright-mcp/
+ui-test-*.png
+test-pdfs/
