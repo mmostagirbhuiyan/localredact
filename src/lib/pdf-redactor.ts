@@ -4,7 +4,7 @@ import type { PDFPageInfo } from '../hooks/usePDFParser';
 import type { DetectedEntity } from './entity-types';
 import type { TextItem } from 'pdfjs-dist/types/src/display/api';
 
-interface BoundingBox {
+export interface BoundingBox {
   pageIndex: number;
   x: number;      // PDF points, from left
   y: number;      // PDF points, from top (canvas-style, already flipped)
@@ -163,6 +163,46 @@ function mergeBoxes(boxes: BoundingBox[]): BoundingBox[] {
   }
 
   return merged;
+}
+
+export interface EntityOverlay {
+  entityId: string;
+  entity: DetectedEntity;
+  boxes: BoundingBox[];
+}
+
+/**
+ * Map a single entity to bounding boxes on a specific page.
+ */
+export function mapEntityToBoundsOnPage(
+  entity: DetectedEntity,
+  page: PDFPageInfo,
+): BoundingBox[] {
+  const boxes = findTextItemBounds(entity.text, page.textItems, page.height);
+  for (const box of boxes) {
+    box.pageIndex = page.pageIndex;
+  }
+  return boxes;
+}
+
+/**
+ * Map entities to per-entity overlays for a given page.
+ */
+export function getPageEntityOverlays(
+  entities: DetectedEntity[],
+  page: PDFPageInfo,
+): EntityOverlay[] {
+  const overlays: EntityOverlay[] = [];
+  const pageEntities = entities.filter(
+    (e) => e.start < page.textEnd && e.end > page.textStart,
+  );
+  for (const entity of pageEntities) {
+    const boxes = mapEntityToBoundsOnPage(entity, page);
+    if (boxes.length > 0) {
+      overlays.push({ entityId: entity.id, entity, boxes });
+    }
+  }
+  return overlays;
 }
 
 /**
