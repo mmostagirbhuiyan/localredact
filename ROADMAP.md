@@ -9,7 +9,7 @@
 | 1 | Detection Engine (WebLLM + Qwen3-4B) | **COMPLETE** |
 | 2 | True PDF Redaction (render-to-image) | **COMPLETE** |
 | 3 | Vision Model Fallback (SmolVLM) | Not started |
-| 4 | UX Polish | In progress |
+| 4 | UX Polish | **COMPLETE** |
 
 ---
 
@@ -88,7 +88,7 @@ For PDFs where text extraction fails: scanned docs, letter-spacing artifacts, im
 
 ---
 
-## Phase 4: UX Polish — IN PROGRESS
+## Phase 4: UX Polish — COMPLETE
 
 ### 4.1 Review Interface
 Done:
@@ -118,7 +118,7 @@ Todo:
 ### 4.3 Batch Processing
 - [x] Multi-file drag-and-drop
 - [x] Queue with per-file progress
-- [ ] Batch redaction settings (apply same rules to all files)
+- [x] Batch redaction settings (apply same rules to all files)
 
 ---
 
@@ -146,6 +146,7 @@ These were tried and failed. Do NOT retry them:
 - **Llama 3.2 for PII**: Safety alignment refuses to extract PII.
 - **Example entities in prompt**: Causes hallucination across documents.
 - **Concurrent WebLLM detect() calls**: Corrupts GPU buffer state. Must serialize with mutex.
+- **Confidence field in LLM prompt**: Adding `"confidence":0.95` to the output format distracted Qwen3-4B — missed addresses and names on dense PDFs. Compute confidence from match quality instead (exact=0.95, fuzzy=0.80).
 
 ## References
 
