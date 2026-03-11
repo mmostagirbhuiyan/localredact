@@ -1,10 +1,11 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect, useRef } from 'react';
 import { DetectedEntity, ENTITY_CONFIG } from '../lib/entity-types';
 
 interface DocumentViewerProps {
   text: string;
   entities: DetectedEntity[];
   onEntityClick: (id: string) => void;
+  focusedEntityId?: string | null;
 }
 
 interface TextSegment {
@@ -12,7 +13,15 @@ interface TextSegment {
   entity: DetectedEntity | null;
 }
 
-export const DocumentViewer: React.FC<DocumentViewerProps> = ({ text, entities, onEntityClick }) => {
+export const DocumentViewer: React.FC<DocumentViewerProps> = ({ text, entities, onEntityClick, focusedEntityId }) => {
+  const focusedRef = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    if (focusedEntityId && focusedRef.current) {
+      focusedRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  }, [focusedEntityId]);
+
   const segments = useMemo(() => {
     const accepted = entities
       .filter((e) => e.accepted)
@@ -47,15 +56,19 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({ text, entities, 
           }
 
           const config = ENTITY_CONFIG[seg.entity.category];
+          const isFocused = focusedEntityId === seg.entity.id;
           return (
             <span
               key={i}
+              ref={isFocused ? focusedRef : undefined}
               onClick={() => onEntityClick(seg.entity!.id)}
               className="cursor-pointer rounded px-0.5 transition-all duration-150 hover:opacity-80"
               style={{
                 background: `var(${config.softVar})`,
                 borderBottom: `2px solid var(${config.colorVar})`,
                 color: `var(${config.colorVar})`,
+                outline: isFocused ? `2px solid var(${config.colorVar})` : 'none',
+                outlineOffset: '1px',
               }}
               title={`${config.label}: ${seg.text}`}
             >

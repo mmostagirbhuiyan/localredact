@@ -101,7 +101,8 @@ For PDFs where text extraction fails (scanned docs, letter-spacing artifacts, im
 - [ ] Side-by-side before/after preview (original page vs redacted page)
 - [ ] Entity review panel: accept/reject/edit per entity with confidence scores
 - [x] Category toggles: redact all PERSON, keep all ORGANIZATION, etc.
-- [ ] Keyboard shortcuts for rapid review (Tab to next, Enter to accept, Delete to reject)
+- [x] Keyboard shortcuts: Tab/Shift+Tab navigate, Space toggle, Enter accept, Delete reject
+- [x] Focused entity highlighting in DocumentViewer and EntityList with auto-scroll
 
 ### 4.2 Batch Processing
 - [ ] Multi-file drag-and-drop

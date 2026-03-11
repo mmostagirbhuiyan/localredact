@@ -7,9 +7,10 @@ interface EntityListProps {
   onToggle: (id: string) => void;
   onScrollTo: (id: string) => void;
   onToggleCategory?: (category: string, accepted: boolean) => void;
+  focusedEntityId?: string | null;
 }
 
-export const EntityList: React.FC<EntityListProps> = ({ entities, onToggle, onScrollTo, onToggleCategory }) => {
+export const EntityList: React.FC<EntityListProps> = ({ entities, onToggle, onScrollTo, onToggleCategory, focusedEntityId }) => {
   const grouped = entities.reduce<Record<string, DetectedEntity[]>>((acc, entity) => {
     const key = entity.category;
     if (!acc[key]) acc[key] = [];
@@ -72,6 +73,8 @@ export const EntityList: React.FC<EntityListProps> = ({ entities, onToggle, onSc
                   style={{
                     background: entity.accepted ? `var(${config.softVar})` : 'transparent',
                     opacity: entity.accepted ? 1 : 0.5,
+                    outline: focusedEntityId === entity.id ? `2px solid var(${config.colorVar})` : 'none',
+                    outlineOffset: '-1px',
                   }}
                 >
                   <span

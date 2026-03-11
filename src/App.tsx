@@ -154,6 +154,61 @@ const App: React.FC = () => {
     pdf.reset();
   }, [pdf]);
 
+  // Keyboard shortcuts for entity review
+  const [focusedEntityIdx, setFocusedEntityIdx] = useState<number>(-1);
+
+  useEffect(() => {
+    if (appState !== 'review' || entities.length === 0) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't capture when typing in inputs
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        setFocusedEntityIdx((prev) => {
+          const next = e.shiftKey ? prev - 1 : prev + 1;
+          if (next < 0) return entities.length - 1;
+          if (next >= entities.length) return 0;
+          return next;
+        });
+      } else if (e.key === 'Enter' && focusedEntityIdx >= 0) {
+        e.preventDefault();
+        const entity = entities[focusedEntityIdx];
+        if (entity && !entity.accepted) {
+          setEntities((prev) =>
+            prev.map((ent) => (ent.id === entity.id ? { ...ent, accepted: true } : ent)),
+          );
+        }
+      } else if ((e.key === 'Backspace' || e.key === 'Delete') && focusedEntityIdx >= 0) {
+        e.preventDefault();
+        const entity = entities[focusedEntityIdx];
+        if (entity && entity.accepted) {
+          setEntities((prev) =>
+            prev.map((ent) => (ent.id === entity.id ? { ...ent, accepted: false } : ent)),
+          );
+        }
+      } else if (e.key === ' ' && focusedEntityIdx >= 0) {
+        e.preventDefault();
+        const entity = entities[focusedEntityIdx];
+        if (entity) handleToggleEntity(entity.id);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [appState, entities, focusedEntityIdx, handleToggleEntity]);
+
+  // Reset focus when entities change significantly
+  useEffect(() => {
+    if (focusedEntityIdx >= entities.length) {
+      setFocusedEntityIdx(entities.length > 0 ? entities.length - 1 : -1);
+    }
+  }, [entities.length, focusedEntityIdx]);
+
+  const focusedEntityId = focusedEntityIdx >= 0 ? entities[focusedEntityIdx]?.id ?? null : null;
+
   const acceptedCount = entities.filter((e) => e.accepted).length;
 
   return (
@@ -292,6 +347,7 @@ const App: React.FC = () => {
                 text={pdf.text}
                 entities={entities}
                 onEntityClick={handleToggleEntity}
+                focusedEntityId={focusedEntityId}
               />
               <DevViewer debugLog={ner.debugLog} modelId={MODEL_ID} />
             </div>
@@ -310,11 +366,21 @@ const App: React.FC = () => {
                 redacting={redacting}
                 isPDF={pdf.isPDF}
               />
+              {entities.length > 0 && (
+                <div
+                  className="text-xs px-3 py-2 rounded-lg"
+                  style={{ background: 'var(--bg-soft)', color: 'var(--ink-faint)' }}
+                >
+                  <span className="font-medium" style={{ color: 'var(--ink-tertiary)' }}>Keyboard:</span>{' '}
+                  Tab/Shift+Tab navigate, Space toggle, Enter accept, Delete reject
+                </div>
+              )}
               <EntityList
                 entities={entities}
                 onToggle={handleToggleEntity}
                 onScrollTo={handleToggleEntity}
                 onToggleCategory={handleToggleCategory}
+                focusedEntityId={focusedEntityId}
               />
             </div>
           </div>
