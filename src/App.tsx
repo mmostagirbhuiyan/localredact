@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { Shield, Loader2, Columns2, FileText } from 'lucide-react';
+import { Shield, Loader2, Columns2, FileText, Files, ChevronRight, Check, Download, SkipForward } from 'lucide-react';
 import { DropZone } from './components/DropZone';
 import { DocumentViewer } from './components/DocumentViewer';
 import { PDFPageViewer } from './components/PDFPageViewer';
@@ -18,12 +18,24 @@ import { generateRedactionReport } from './lib/redaction-report';
 
 type AppState = 'input' | 'scanning' | 'review' | 'redacted';
 
+interface QueueItem {
+  file: File;
+  status: 'pending' | 'active' | 'done' | 'skipped';
+  redactedBytes?: Uint8Array;
+  entityCount?: number;
+}
+
 const App: React.FC = () => {
   const [appState, setAppState] = useState<AppState>('input');
   const [entities, setEntities] = useState<DetectedEntity[]>([]);
   const [redactStyle, setRedactStyle] = useState<RedactStyle>('text');
   const [redactedText, setRedactedText] = useState<string | null>(null);
   const [showComparison, setShowComparison] = useState(false);
+  const [fileQueue, setFileQueue] = useState<QueueItem[]>([]);
+  const [activeQueueIdx, setActiveQueueIdx] = useState(-1);
+  const [redactedPdfBytes, setRedactedPdfBytes] = useState<Uint8Array | null>(null);
+  const [redacting, setRedacting] = useState(false);
+  const [redactProgress, setRedactProgress] = useState('');
 
   const pdf = usePDFParser();
   const ner = useNERModel();
@@ -65,16 +77,90 @@ const App: React.FC = () => {
       setAppState('scanning');
       setEntities([]);
       setRedactedText(null);
+      setRedactedPdfBytes(null);
+      setShowComparison(false);
       pdf.parseFile(file);
     },
     [pdf],
   );
+
+  const handleFilesSelect = useCallback(
+    (files: File[]) => {
+      if (files.length === 0) return;
+      const queue: QueueItem[] = files.map((f, i) => ({
+        file: f,
+        status: i === 0 ? 'active' as const : 'pending' as const,
+      }));
+      setFileQueue(queue);
+      setActiveQueueIdx(0);
+      // Start processing the first file
+      setAppState('scanning');
+      setEntities([]);
+      setRedactedText(null);
+      setRedactedPdfBytes(null);
+      setShowComparison(false);
+      pdf.parseFile(files[0]);
+    },
+    [pdf],
+  );
+
+  const advanceQueue = useCallback((markStatus: 'done' | 'skipped') => {
+    // Save redacted bytes for current file if done
+    const accepted = entities.filter(e => e.accepted).length;
+    setFileQueue(prev => prev.map((item, i) => {
+      if (i === activeQueueIdx) {
+        return {
+          ...item,
+          status: markStatus,
+          redactedBytes: markStatus === 'done' ? redactedPdfBytes ?? undefined : undefined,
+          entityCount: markStatus === 'done' ? accepted : undefined,
+        };
+      }
+      return item;
+    }));
+
+    // Find next pending file
+    const nextIdx = fileQueue.findIndex((item, i) => i > activeQueueIdx && item.status === 'pending');
+    if (nextIdx === -1) {
+      // No more pending files — stay on current view so user can download from queue
+      return;
+    }
+
+    setFileQueue(prev => prev.map((item, i) => {
+      if (i === nextIdx) return { ...item, status: 'active' as const };
+      return item;
+    }));
+    setActiveQueueIdx(nextIdx);
+    setAppState('scanning');
+    setEntities([]);
+    setRedactedText(null);
+    setRedactedPdfBytes(null);
+    setShowComparison(false);
+    nerScannedRef.current = null;
+    pdf.parseFile(fileQueue[nextIdx].file);
+  }, [activeQueueIdx, fileQueue, entities, redactedPdfBytes, pdf]);
+
+  const handleNextFile = useCallback(() => advanceQueue('done'), [advanceQueue]);
+  const handleSkipFile = useCallback(() => advanceQueue('skipped'), [advanceQueue]);
+
+  const handleDownloadQueueItem = useCallback((idx: number) => {
+    const item = fileQueue[idx];
+    if (!item?.redactedBytes) return;
+    const blob = new Blob([item.redactedBytes.buffer as ArrayBuffer], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = item.file.name.replace(/\.pdf$/i, '_redacted.pdf');
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [fileQueue]);
 
   const handleTextPaste = useCallback(
     (text: string) => {
       setAppState('scanning');
       setEntities([]);
       setRedactedText(null);
+      setRedactedPdfBytes(null);
       pdf.setText(text);
     },
     [pdf],
@@ -113,10 +199,6 @@ const App: React.FC = () => {
       prev.map((e) => (idSet.has(e.id) ? { ...e, text: newText } : e)),
     );
   }, []);
-
-  const [redactedPdfBytes, setRedactedPdfBytes] = useState<Uint8Array | null>(null);
-  const [redacting, setRedacting] = useState(false);
-  const [redactProgress, setRedactProgress] = useState('');
 
   const handleRedact = useCallback(async () => {
     if (!pdf.text) return;
@@ -189,6 +271,9 @@ const App: React.FC = () => {
     setEntities([]);
     setRedactedText(null);
     setRedactedPdfBytes(null);
+    setFileQueue([]);
+    setActiveQueueIdx(-1);
+    setShowComparison(false);
     nerScannedRef.current = null;
     pdf.reset();
   }, [pdf]);
@@ -290,6 +375,99 @@ const App: React.FC = () => {
       </header>
 
       <main className="max-w-6xl mx-auto px-6 py-8">
+        {/* Batch queue progress */}
+        {fileQueue.length > 1 && (
+          <div
+            className="mb-6 rounded-xl p-4"
+            style={{ background: 'var(--bg-soft)', border: '1px solid var(--border-subtle)' }}
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <Files size={16} style={{ color: 'var(--accent-primary)' }} />
+              <span
+                className="text-sm font-semibold"
+                style={{ fontFamily: "'Space Grotesk', system-ui, sans-serif", color: 'var(--ink-primary)' }}
+              >
+                Batch Processing
+              </span>
+              <span className="text-xs ml-auto" style={{ color: 'var(--ink-tertiary)' }}>
+                {fileQueue.filter(q => q.status === 'done').length}/{fileQueue.length} complete
+              </span>
+            </div>
+            <div className="space-y-1.5">
+              {fileQueue.map((item, i) => (
+                <div
+                  key={i}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs"
+                  style={{
+                    background: item.status === 'active' ? 'var(--accent-primary-soft)' : 'var(--bg-base)',
+                    border: item.status === 'active' ? '1px solid var(--accent-primary)' : '1px solid var(--border-subtle)',
+                  }}
+                >
+                  {item.status === 'done' && <Check size={12} style={{ color: 'var(--accent-primary)' }} />}
+                  {item.status === 'active' && <ChevronRight size={12} style={{ color: 'var(--accent-primary)' }} />}
+                  {item.status === 'skipped' && <SkipForward size={12} style={{ color: 'var(--ink-faint)' }} />}
+                  {item.status === 'pending' && <div className="w-3 h-3 rounded-full" style={{ border: '1px solid var(--border-default)' }} />}
+                  <span
+                    className="flex-1 truncate"
+                    style={{ color: item.status === 'done' || item.status === 'skipped' ? 'var(--ink-faint)' : 'var(--ink-secondary)' }}
+                  >
+                    {item.file.name}
+                  </span>
+                  {item.status === 'done' && item.entityCount !== undefined && (
+                    <span className="text-xs" style={{ color: 'var(--ink-faint)' }}>
+                      {item.entityCount} redacted
+                    </span>
+                  )}
+                  {item.status === 'skipped' && (
+                    <span className="text-xs" style={{ color: 'var(--ink-faint)' }}>skipped</span>
+                  )}
+                  {item.status === 'done' && item.redactedBytes && (
+                    <button
+                      onClick={() => handleDownloadQueueItem(i)}
+                      className="flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors"
+                      style={{ color: 'var(--accent-primary)', background: 'var(--accent-primary-soft)' }}
+                    >
+                      <Download size={10} />
+                      Download
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+            {/* Progress bar */}
+            <div
+              className="h-1.5 rounded-full overflow-hidden mt-3"
+              style={{ background: 'var(--bg-elevated)' }}
+            >
+              <div
+                className="h-full rounded-full transition-all duration-500"
+                style={{
+                  width: `${Math.round((fileQueue.filter(q => q.status === 'done' || q.status === 'skipped').length / fileQueue.length) * 100)}%`,
+                  background: 'var(--accent-primary)',
+                }}
+              />
+            </div>
+            {/* Download all button when batch is complete */}
+            {fileQueue.every(q => q.status === 'done' || q.status === 'skipped') && (
+              <div className="flex items-center gap-2 mt-3">
+                <button
+                  onClick={() => fileQueue.forEach((_, i) => handleDownloadQueueItem(i))}
+                  className="btn-primary text-xs h-8 px-4 flex items-center gap-1.5"
+                >
+                  <Download size={14} />
+                  Download All ({fileQueue.filter(q => q.redactedBytes).length} files)
+                </button>
+                <button
+                  onClick={handleStartOver}
+                  className="btn-secondary text-xs h-8 px-4"
+                >
+                  Done
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Input state */}
         {appState === 'input' && (
           <div className="flex flex-col items-center gap-8">
@@ -306,6 +484,7 @@ const App: React.FC = () => {
             </div>
             <DropZone
               onFileSelect={handleFileSelect}
+              onFilesSelect={handleFilesSelect}
               onTextPaste={handleTextPaste}
               loading={pdf.loading}
             />
@@ -470,6 +649,15 @@ const App: React.FC = () => {
                 onEditText={handleEditEntityText}
                 focusedEntityId={focusedEntityId}
               />
+              {fileQueue.length > 1 && fileQueue.some((q, i) => i > activeQueueIdx && q.status === 'pending') && (
+                <button
+                  onClick={handleSkipFile}
+                  className="btn-secondary w-full flex items-center justify-center gap-2 text-xs"
+                >
+                  <SkipForward size={14} />
+                  Skip this file
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -588,6 +776,17 @@ const App: React.FC = () => {
                 redacted={true}
                 isPDF={pdf.isPDF}
               />
+              {fileQueue.length > 1 && fileQueue.some((q, i) => i > activeQueueIdx && q.status === 'pending') && (
+                <div className="space-y-2">
+                  <button
+                    onClick={handleNextFile}
+                    className="btn-primary w-full flex items-center justify-center gap-2"
+                  >
+                    <ChevronRight size={16} />
+                    Next File
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}

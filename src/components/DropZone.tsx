@@ -4,11 +4,12 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 interface DropZoneProps {
   onFileSelect: (file: File) => void;
+  onFilesSelect?: (files: File[]) => void;
   onTextPaste: (text: string) => void;
   loading: boolean;
 }
 
-export const DropZone: React.FC<DropZoneProps> = ({ onFileSelect, onTextPaste, loading }) => {
+export const DropZone: React.FC<DropZoneProps> = ({ onFileSelect, onFilesSelect, onTextPaste, loading }) => {
   const [dragOver, setDragOver] = useState(false);
   const [mode, setMode] = useState<'drop' | 'paste'>('drop');
   const [pasteText, setPasteText] = useState('');
@@ -28,20 +29,28 @@ export const DropZone: React.FC<DropZoneProps> = ({ onFileSelect, onTextPaste, l
     (e: React.DragEvent) => {
       e.preventDefault();
       setDragOver(false);
-      const file = e.dataTransfer.files[0];
-      if (file && file.type === 'application/pdf') {
-        onFileSelect(file);
+      const files = Array.from(e.dataTransfer.files).filter(
+        (f) => f.type === 'application/pdf',
+      );
+      if (files.length > 1 && onFilesSelect) {
+        onFilesSelect(files);
+      } else if (files.length === 1) {
+        onFileSelect(files[0]);
       }
     },
-    [onFileSelect],
+    [onFileSelect, onFilesSelect],
   );
 
   const handleFileInput = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (file) onFileSelect(file);
+      const files = e.target.files ? Array.from(e.target.files) : [];
+      if (files.length > 1 && onFilesSelect) {
+        onFilesSelect(files);
+      } else if (files.length === 1) {
+        onFileSelect(files[0]);
+      }
     },
-    [onFileSelect],
+    [onFileSelect, onFilesSelect],
   );
 
   const handlePasteSubmit = useCallback(() => {
@@ -107,6 +116,7 @@ export const DropZone: React.FC<DropZoneProps> = ({ onFileSelect, onTextPaste, l
                 ref={fileInputRef}
                 type="file"
                 accept=".pdf"
+                multiple
                 onChange={handleFileInput}
                 className="hidden"
               />
@@ -117,10 +127,10 @@ export const DropZone: React.FC<DropZoneProps> = ({ onFileSelect, onTextPaste, l
                 <Upload size={28} style={{ color: 'var(--accent-primary)' }} />
               </div>
               <p className="text-lg font-medium mb-2" style={{ color: 'var(--ink-primary)' }}>
-                {loading ? 'Parsing PDF...' : 'Drop a PDF here'}
+                {loading ? 'Parsing PDF...' : 'Drop PDFs here'}
               </p>
               <p className="text-sm" style={{ color: 'var(--ink-tertiary)' }}>
-                or click to browse. Your file never leaves your browser.
+                or click to browse. Drop multiple files for batch processing.
               </p>
             </div>
           </motion.div>
