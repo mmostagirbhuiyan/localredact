@@ -5,9 +5,10 @@ import { DocumentViewer } from './components/DocumentViewer';
 import { EntityList } from './components/EntityList';
 import { RedactControls } from './components/RedactControls';
 import { ShareCard } from './components/ShareCard';
+import { DevViewer } from './components/DevViewer';
 import { ThemeToggle } from './components/ThemeToggle';
 import { usePDFParser } from './hooks/usePDFParser';
-import { useNERModel } from './hooks/useNERModel';
+import { useNERModel, MODEL_ID } from './hooks/useNERModel';
 import { detectWithRegex } from './lib/regex-patterns';
 import { redactText, RedactStyle } from './lib/redactor';
 import { DetectedEntity } from './lib/entity-types';
@@ -192,20 +193,57 @@ const App: React.FC = () => {
         {appState === 'review' && pdf.text && (
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6">
             <div className="space-y-4">
-              {/* NER loading indicator */}
+              {/* AI model loading indicator */}
               {ner.loading && (
-                <div
-                  className="flex items-center gap-3 px-4 py-3 rounded-xl"
-                  style={{ background: 'var(--accent-primary-soft)', border: '1px solid var(--accent-primary)' }}
-                >
-                  <Loader2
-                    size={14}
-                    className="animate-spin"
-                    style={{ color: 'var(--accent-primary)' }}
-                  />
-                  <span className="text-xs" style={{ color: 'var(--accent-primary)' }}>
-                    Loading AI model for name/org/location detection... {ner.progress}%
-                  </span>
+                <div className="glass-panel rounded-2xl overflow-hidden">
+                  <div className="p-6 text-center">
+                    <div className="relative w-16 h-16 mx-auto mb-4">
+                      <div
+                        className="absolute inset-0 rounded-full"
+                        style={{ border: '2px solid var(--border-subtle)' }}
+                      />
+                      <div
+                        className="absolute inset-0 rounded-full animate-spin"
+                        style={{ borderTop: '2px solid var(--accent-primary)', borderRight: '2px solid transparent', borderBottom: '2px solid transparent', borderLeft: '2px solid transparent' }}
+                      />
+                      <div
+                        className="absolute inset-2.5 rounded-full"
+                        style={{ borderRight: '2px solid var(--accent-primary)', borderTop: '2px solid transparent', borderBottom: '2px solid transparent', borderLeft: '2px solid transparent', opacity: 0.6, animation: 'spin 1.5s linear infinite reverse' }}
+                      />
+                    </div>
+
+                    <h3
+                      className="text-sm font-semibold mb-1"
+                      style={{ color: 'var(--ink-primary)' }}
+                    >
+                      Loading AI Detection Model
+                    </h3>
+                    <p className="text-xs mb-4" style={{ color: 'var(--ink-tertiary)' }}>
+                      Downloading and initializing (~500MB)
+                    </p>
+
+                    <div className="max-w-xs mx-auto">
+                      <div className="flex justify-between text-xs mb-1.5">
+                        <span style={{ color: 'var(--ink-secondary)' }}>Progress</span>
+                        <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
+                          {ner.progress}%
+                        </span>
+                      </div>
+                      <div
+                        className="h-2.5 rounded-full overflow-hidden"
+                        style={{ background: 'var(--bg-elevated)' }}
+                      >
+                        <div
+                          className="h-full rounded-full transition-all duration-300"
+                          style={{ width: `${ner.progress}%`, background: 'var(--accent-primary)' }}
+                        />
+                      </div>
+                    </div>
+
+                    <p className="text-xs mt-3" style={{ color: 'var(--ink-faint)' }}>
+                      First load may take a minute. Cached for future use.
+                    </p>
+                  </div>
                 </div>
               )}
 
@@ -214,6 +252,7 @@ const App: React.FC = () => {
                 entities={entities}
                 onEntityClick={handleToggleEntity}
               />
+              <DevViewer debugLog={ner.debugLog} modelId={MODEL_ID} />
             </div>
 
             <div className="space-y-4">

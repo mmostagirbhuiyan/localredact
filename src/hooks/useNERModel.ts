@@ -1,13 +1,31 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { DetectedEntity, EntityCategory, createEntityId } from '../lib/entity-types';
+import { PII_SYSTEM_PROMPT, buildPIIUserPrompt } from '../lib/pii-prompt';
 
-interface NERResult {
-  entity: string;
-  score: number;
-  index: number;
-  word: string;
-  start?: number;
-  end?: number;
+interface WebLLMEngine {
+  chat: {
+    completions: {
+      create: (params: {
+        messages: Array<{ role: string; content: string }>;
+        stream: boolean;
+        temperature: number;
+        max_tokens: number;
+      }) => AsyncIterable<{
+        choices: Array<{ delta?: { content?: string } }>;
+      }>;
+    };
+  };
+  unload: () => void;
+}
+
+export interface LLMDebugEntry {
+  chunkIndex: number;
+  totalChunks: number;
+  systemPrompt: string;
+  userPrompt: string;
+  rawResponse: string;
+  parsedEntities: PIIEntity[];
+  timestamp: number;
 }
 
 interface NERModelState {
@@ -17,81 +35,99 @@ interface NERModelState {
   error: string | null;
 }
 
-type NERPipeline = (text: string) => Promise<NERResult[]>;
-
-function mapNERLabel(label: string): EntityCategory | null {
-  // BERT NER labels: B-PER, I-PER, B-ORG, I-ORG, B-LOC, I-LOC, B-MISC, I-MISC
-  if (label.includes('PER')) return 'PERSON';
-  if (label.includes('ORG')) return 'ORGANIZATION';
-  if (label.includes('LOC')) return 'LOCATION';
-  return null; // Skip MISC
+interface PIIEntity {
+  type: string;
+  text: string;
 }
 
-function reconstructTokenText(words: string[]): string {
-  let text = '';
-  for (const w of words) {
-    if (w.startsWith('##')) {
-      text += w.slice(2);
-    } else {
-      text += (text ? ' ' : '') + w;
-    }
-  }
-  return text;
+export const MODEL_ID = 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC';
+
+function checkWebGPUSupport(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  return !!(navigator as Navigator & { gpu?: unknown }).gpu;
 }
 
-function mergeTokenSpans(results: NERResult[], sourceText: string): { text: string; category: EntityCategory; start: number; end: number }[] {
-  const groups: { words: string[]; category: EntityCategory }[] = [];
-  let current: { words: string[]; category: EntityCategory } | null = null;
+function detectIOSDevice(): boolean {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent;
+  const isIOS = /iPad|iPhone|iPod/.test(ua);
+  const isIPadOS13Plus = ua.includes('Mac') && 'ontouchend' in document;
+  return isIOS || isIPadOS13Plus;
+}
 
-  for (const r of results) {
-    const category = mapNERLabel(r.entity);
-    if (!category) {
-      if (current) {
-        groups.push(current);
-        current = null;
-      }
-      continue;
-    }
-
-    const isBeginning = r.entity.startsWith('B-');
-    const isContinuation = r.entity.startsWith('I-');
-
-    if (isBeginning || !current || (isContinuation && current.category !== category)) {
-      if (current) groups.push(current);
-      current = { words: [r.word], category };
-    } else {
-      current.words.push(r.word);
-    }
+function mapLLMType(type: string): EntityCategory | null {
+  const normalized = type.toUpperCase().trim();
+  switch (normalized) {
+    case 'PERSON': return 'PERSON';
+    case 'ORGANIZATION': return 'ORGANIZATION';
+    case 'LOCATION': return 'LOCATION';
+    case 'ADDRESS': return 'LOCATION';
+    case 'DATE': return 'DATE';
+    case 'USERNAME': return 'PERSON';
+    case 'PASSWORD': return 'SSN';
+    case 'ID_NUMBER': return 'SSN';
+    default: return null;
   }
-  if (current) groups.push(current);
+}
 
-  // Reconstruct text from tokens and find positions in source
-  const merged: { text: string; category: EntityCategory; start: number; end: number }[] = [];
+/**
+ * Parse LLM response into PII entities. Handles JSON wrapped in markdown
+ * code blocks, partial JSON, and other common LLM output quirks.
+ */
+function parseLLMResponse(response: string): PIIEntity[] {
+  let cleaned = response.trim();
+
+  // Strip markdown code fences
+  cleaned = cleaned.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '');
+  cleaned = cleaned.trim();
+
+  // Find the JSON array in the response
+  const arrStart = cleaned.indexOf('[');
+  const arrEnd = cleaned.lastIndexOf(']');
+  if (arrStart === -1 || arrEnd === -1 || arrEnd <= arrStart) return [];
+
+  const jsonStr = cleaned.slice(arrStart, arrEnd + 1);
+
+  try {
+    const parsed = JSON.parse(jsonStr);
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed.filter(
+      (item: unknown): item is PIIEntity =>
+        typeof item === 'object' &&
+        item !== null &&
+        typeof (item as PIIEntity).type === 'string' &&
+        typeof (item as PIIEntity).text === 'string' &&
+        (item as PIIEntity).text.length > 1,
+    );
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Find all occurrences of an entity text in the source and return char offsets.
+ */
+function findEntityPositions(
+  entityText: string,
+  sourceText: string,
+  existingRanges: Set<string>,
+): { start: number; end: number }[] {
+  const positions: { start: number; end: number }[] = [];
   let searchFrom = 0;
 
-  for (const g of groups) {
-    const entityText = reconstructTokenText(g.words);
+  while (searchFrom < sourceText.length) {
     const idx = sourceText.indexOf(entityText, searchFrom);
-    if (idx !== -1) {
-      merged.push({ text: entityText, category: g.category, start: idx, end: idx + entityText.length });
-      searchFrom = idx + entityText.length;
-    } else {
-      // Fuzzy fallback: search case-insensitively
-      const lower = sourceText.toLowerCase();
-      const idxLower = lower.indexOf(entityText.toLowerCase(), searchFrom);
-      if (idxLower !== -1) {
-        merged.push({
-          text: sourceText.slice(idxLower, idxLower + entityText.length),
-          category: g.category,
-          start: idxLower,
-          end: idxLower + entityText.length,
-        });
-        searchFrom = idxLower + entityText.length;
-      }
+    if (idx === -1) break;
+
+    const rangeKey = `${idx}-${idx + entityText.length}`;
+    if (!existingRanges.has(rangeKey)) {
+      positions.push({ start: idx, end: idx + entityText.length });
     }
+    searchFrom = idx + 1;
   }
 
-  return merged;
+  return positions;
 }
 
 export function useNERModel() {
@@ -102,101 +138,162 @@ export function useNERModel() {
     error: null,
   });
 
-  const pipelineRef = useRef<NERPipeline | null>(null);
+  const engineRef = useRef<WebLLMEngine | null>(null);
+  const supportedRef = useRef<boolean | null>(null);
+  const [debugLog, setDebugLog] = useState<LLMDebugEntry[]>([]);
+
+  // Check support on mount
+  useEffect(() => {
+    const hasWebGPU = checkWebGPUSupport();
+    const isIOS = detectIOSDevice();
+    supportedRef.current = hasWebGPU && !isIOS;
+
+    if (!hasWebGPU) {
+      setState(prev => ({ ...prev, error: 'WebGPU not available. AI detection requires Chrome 113+, Edge 113+, or Safari 17+.' }));
+    } else if (isIOS) {
+      setState(prev => ({ ...prev, error: 'AI detection not available on iOS due to WebGPU limitations.' }));
+    }
+  }, []);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (engineRef.current) {
+        try { engineRef.current.unload(); } catch { /* ignore */ }
+        engineRef.current = null;
+      }
+    };
+  }, []);
 
   const loadModel = useCallback(async () => {
-    if (pipelineRef.current || state.loading) return;
+    if (engineRef.current || state.loading) return;
+    if (supportedRef.current === false) return;
 
     setState({ loading: true, ready: false, progress: 0, error: null });
 
     try {
-      const { pipeline, env } = await import('@huggingface/transformers');
+      const webllm = await import('@mlc-ai/web-llm');
 
-      // Disable local model loading — fetch directly from HuggingFace CDN.
-      // Without this, the browser tries /models/... which hits the SPA fallback.
-      env.allowLocalModels = false;
-
-      const ner = await pipeline('token-classification', 'Xenova/bert-base-NER', {
-        progress_callback: (data: Record<string, unknown>) => {
-          if ('progress' in data && typeof data.progress === 'number') {
-            setState((prev) => ({ ...prev, progress: Math.round(data.progress as number) }));
+      const engine = await webllm.CreateMLCEngine(MODEL_ID, {
+        initProgressCallback: (report: { progress?: number; text?: string }) => {
+          console.log('[WebLLM] Progress:', JSON.stringify(report));
+          if (report.progress !== undefined) {
+            setState(prev => ({ ...prev, progress: Math.round(report.progress! * 100) }));
           }
         },
       });
 
-      pipelineRef.current = ner as unknown as NERPipeline;
+      engineRef.current = engine as unknown as WebLLMEngine;
       setState({ loading: false, ready: true, progress: 100, error: null });
     } catch (err) {
       setState({
         loading: false,
         ready: false,
         progress: 0,
-        error: err instanceof Error ? err.message : 'Failed to load NER model',
+        error: err instanceof Error ? err.message : 'Failed to load AI model',
       });
     }
   }, [state.loading]);
 
   const detect = useCallback(async (text: string): Promise<DetectedEntity[]> => {
-    if (!pipelineRef.current) return [];
+    if (!engineRef.current) return [];
+
+    setDebugLog([]);
 
     try {
-      // Split on sentence boundaries to avoid cutting through words/entities
-      const maxChunkSize = 512;
-      const chunks: { text: string; offset: number }[] = [];
+      // Chunk text for LLM processing. LLM context is much larger than
+      // token classifiers, so we can use bigger chunks.
+      const maxChunkSize = 1500;
+      const chunks: string[] = [];
       let pos = 0;
 
       while (pos < text.length) {
         if (pos + maxChunkSize >= text.length) {
-          chunks.push({ text: text.slice(pos), offset: pos });
+          chunks.push(text.slice(pos));
           break;
         }
-        // Find the last sentence-ending punctuation or newline within the limit
         const window = text.slice(pos, pos + maxChunkSize);
         let breakAt = -1;
+        // Find last paragraph or sentence break
         for (let i = window.length - 1; i >= Math.floor(window.length / 2); i--) {
-          if (window[i] === '.' || window[i] === '\n' || window[i] === '!' || window[i] === '?') {
+          if (window[i] === '\n' || window[i] === '.' || window[i] === '!' || window[i] === '?') {
             breakAt = i + 1;
             break;
           }
         }
-        // Fall back to last space if no sentence boundary found
         if (breakAt === -1) {
           for (let i = window.length - 1; i >= Math.floor(window.length / 2); i--) {
-            if (window[i] === ' ') {
-              breakAt = i + 1;
-              break;
-            }
+            if (window[i] === ' ') { breakAt = i + 1; break; }
           }
         }
         const end = breakAt > 0 ? breakAt : maxChunkSize;
-        chunks.push({ text: text.slice(pos, pos + end), offset: pos });
+        chunks.push(text.slice(pos, pos + end));
         pos += end;
       }
 
       const allEntities: DetectedEntity[] = [];
+      const existingRanges = new Set<string>();
 
       for (const chunk of chunks) {
-        const results = await pipelineRef.current(chunk.text);
-        const merged = mergeTokenSpans(results, chunk.text);
+        let response = '';
+        const completion = await engineRef.current.chat.completions.create({
+          messages: [
+            { role: 'system', content: PII_SYSTEM_PROMPT },
+            { role: 'user', content: buildPIIUserPrompt(chunk) },
+          ],
+          stream: true,
+          temperature: 0.1,
+          max_tokens: 1024,
+        });
 
-        for (const m of merged) {
-          allEntities.push({
-            id: createEntityId(),
-            text: m.text,
-            category: m.category,
-            source: 'ner',
-            start: m.start + chunk.offset,
-            end: m.end + chunk.offset,
-            accepted: true,
-          });
+        for await (const part of completion) {
+          const delta = part.choices[0]?.delta?.content || '';
+          if (delta) response += delta;
+        }
+
+        console.log('[LLM] Raw response:', response);
+        const piiEntities = parseLLMResponse(response);
+        console.log('[LLM] Parsed entities:', JSON.stringify(piiEntities));
+
+        const userPrompt = buildPIIUserPrompt(chunk);
+        setDebugLog(prev => [...prev, {
+          chunkIndex: chunks.indexOf(chunk),
+          totalChunks: chunks.length,
+          systemPrompt: PII_SYSTEM_PROMPT,
+          userPrompt,
+          rawResponse: response,
+          parsedEntities: piiEntities,
+          timestamp: Date.now(),
+        }]);
+
+        for (const entity of piiEntities) {
+          const category = mapLLMType(entity.type);
+          if (!category) continue;
+
+          // Find all positions of this entity in the full source text
+          const positions = findEntityPositions(entity.text, text, existingRanges);
+
+          for (const pos of positions) {
+            const rangeKey = `${pos.start}-${pos.end}`;
+            existingRanges.add(rangeKey);
+            allEntities.push({
+              id: createEntityId(),
+              text: entity.text,
+              category,
+              source: 'ner',
+              start: pos.start,
+              end: pos.end,
+              accepted: true,
+            });
+          }
         }
       }
 
-      return allEntities;
+      return allEntities.sort((a, b) => a.start - b.start);
     } catch {
       return [];
     }
   }, []);
 
-  return { ...state, loadModel, detect };
+  return { ...state, loadModel, detect, debugLog };
 }

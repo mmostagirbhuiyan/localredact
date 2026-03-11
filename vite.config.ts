@@ -8,7 +8,7 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          'transformers': ['@huggingface/transformers'],
+          'web-llm': ['@mlc-ai/web-llm'],
           'pdf': ['pdfjs-dist', 'pdf-lib'],
         },
       },

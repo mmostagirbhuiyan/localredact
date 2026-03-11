@@ -4,31 +4,41 @@
 
 ## Vision
 FBI-level PDF redaction running entirely on consumer hardware. No cloud. No token limits.
-WebGPU-accelerated AI detection with multi-pass looped verification. True content destruction.
+WebGPU-accelerated LLM for PII detection with multi-pass verification. True content destruction.
 
 ---
 
 ## Phase 1: Detection Engine Upgrade (Highest Impact)
 
-Replace bert-base-NER (4 generic entity types) with purpose-built PII detection.
+Replace token classifiers (bert-base-NER, Piiranha) with a real LLM via WebLLM.
+Modern laptops have the compute. A 1-3B instruct model understands context, follows instructions,
+and produces structured JSON — no BIO tag gymnastics, no broken subword merging.
 
-### 1.1 Piiranha v1 Integration
-- [ ] Replace `Xenova/bert-base-NER` with `onnx-community/piiranha-v1-detect-personal-information-ONNX`
-- [ ] 17 PII types, 98.5% precision, 98.3% recall — purpose-built for PII
-- [ ] Update `useNERModel.ts` entity label mapping for Piiranha's label set
-- [ ] Update entity-types.ts with new PII categories (MEDICAL, FINANCIAL, etc.)
+### 1.1 WebLLM Integration
+- [ ] Add `@mlc-ai/web-llm` dependency
+- [ ] Create `src/hooks/useWebLLM.ts` — adapt pattern from Meridian project
+- [ ] WebGPU support detection (navigator.gpu), iOS exclusion, mobile checks
+- [ ] Lazy model loading with progress callback (model is ~500MB-1.5GB, cached after first load)
+- [ ] Model selection: `Llama-3.2-1B-Instruct-q4f16_1-MLC` (default), with option for 3B
 
-### 1.2 WebGPU Acceleration
-- [ ] Add `device: 'webgpu'` to pipeline initialization (Transformers.js v3+ supports this)
-- [ ] WASM fallback for older browsers (automatic in Transformers.js)
-- [ ] Benchmark: expect ~4x speedup over WASM for BERT-sized models
+### 1.2 LLM-Based PII Extraction
+- [ ] Create `src/lib/pii-prompt.ts` — system prompt for structured PII extraction
+- [ ] Prompt design: input text → JSON array of `{type, text, start, end}` entities
+- [ ] Low temperature (0.1-0.2) for deterministic extraction, not creative generation
+- [ ] Chunking strategy: split text into ~1000 char chunks (LLM context is much larger than token classifiers)
+- [ ] JSON response parsing with validation and fallback
 
-### 1.3 Multi-Pass Looped Detection
-- [ ] Pass 1: Regex sweep (SSN, phone, email, CC, dates, IPs) — deterministic, instant
-- [ ] Pass 2: Piiranha NER sweep via WebGPU — names, orgs, locations, medical, financial
-- [ ] Pass 3: Context re-scan — for each entity, re-examine ±200 char window for missed associations
-- [ ] Pass 4: Confidence gate — below 0.85 flagged for review, above 0.95 auto-accepted
-- [ ] No token limits. Loop until coverage is complete.
+### 1.3 Two-Phase Detection Pipeline
+- [ ] Phase 1: Regex sweep (instant) — SSN, CC, email, phone, dates, IPs. Deterministic, zero false negatives.
+- [ ] Phase 2: LLM sweep via WebGPU — names, orgs, locations, addresses, contextual PII
+- [ ] Deduplicate: if regex already found an entity at [start, end], skip LLM duplicate
+- [ ] Merge results into unified entity list with source attribution (regex vs llm)
+
+### 1.4 Replace useNERModel Hook
+- [ ] Rewrite `src/hooks/useNERModel.ts` → use WebLLM instead of Transformers.js token-classification
+- [ ] Same public interface: `{ loading, ready, progress, error, loadModel, detect }`
+- [ ] Remove `@huggingface/transformers` dependency (or keep only for vision model in Phase 3)
+- [ ] Update vite.config.ts chunking: remove transformers chunk, add web-llm chunk
 
 ---
 
@@ -66,7 +76,7 @@ For PDFs where text extraction fails (scanned docs, letter-spacing artifacts, im
 - [ ] Load SmolVLM-256M via Transformers.js with WebGPU
 - [ ] For each page: render to canvas → feed to vision model → get structured text
 - [ ] Auto-trigger when pdfjs text quality is low (heuristic: high single-char item ratio, letter-spacing variance)
-- [ ] Use vision output as input to detection pipeline (same multi-pass loop)
+- [ ] Use vision output as input to detection pipeline (same two-phase loop)
 
 ### 3.2 Vision-Based PII Verification
 - [ ] After text-based detection, render page with redaction boxes removed
@@ -117,22 +127,31 @@ For PDFs where text extraction fails (scanned docs, letter-spacing artifacts, im
 ### Models
 | Model | Purpose | Size | Format |
 |-------|---------|------|--------|
-| Piiranha v1 | PII detection (17 types) | ~50MB | ONNX |
-| SmolVLM-256M | Vision model (page reading) | ~256MB | ONNX |
-| GLiNER-PII (future) | Zero-shot NER (60+ types) | ~67MB | ONNX |
+| Llama 3.2 1B Instruct (q4f16) | PII extraction via structured prompting | ~500MB | MLC |
+| Llama 3.2 3B Instruct (q4f16) | PII extraction (higher accuracy option) | ~1.5GB | MLC |
+| Qwen 2.5 1.5B Instruct (q4f16) | Alternative — strong structured JSON output | ~800MB | MLC |
+| SmolVLM-256M | Vision model (page reading fallback) | ~256MB | ONNX |
 | SmolDocling (future) | Document structure | TBD | ONNX |
 
 ### WebGPU Browser Support (as of 2026)
 - Chrome 113+ (shipped May 2023)
 - Safari 26+ (shipped 2025)
 - Firefox 141+ (shipped 2025)
-- Automatic WASM fallback via Transformers.js
+- iOS: blocked (WebKit WebGPU bugs cause crashes — see Meridian project for details)
+
+### Reference Implementation
+- **Meridian project** (`../meridian`): WebLLM + Llama 3.2 1B running in-browser for financial analysis
+- Uses `@mlc-ai/web-llm@^0.2.80` with `CreateMLCEngine`
+- Streaming chat completions, WebGPU detection, iOS exclusion, lazy loading
+- Proven pattern: ~500MB model loads, caches, runs inference on consumer hardware
 
 ---
 
 ## Dead Approaches
 - **Content stream surgery via pdf-lib**: Too many edge cases (fonts, CIDFonts, Type3, ligatures, encoding). One miss = data leak. Render-to-image is safer.
-- **bert-base-NER for PII**: Only 4 generic entity types (PER, ORG, LOC, MISC). Not built for PII. Piiranha has 17 PII-specific types at 98%+ accuracy.
+- **bert-base-NER for PII**: Only 4 generic entity types (PER, ORG, LOC, MISC). Not built for PII. Misses names in natural text.
+- **Piiranha v1 (DeBERTa token classifier)**: Marketed as 98% accuracy but fails on basic inputs. No B- tags emitted (all I-), label flipping mid-word ("Terrac"=CITY, "e"=STREET), missed "Sarah Johnson" entirely. Broken BIO tagging scheme. Token classifiers are fundamentally limited — they don't understand context.
+- **Token classification approach in general**: BIO tagging + subword merging is fragile. SentencePiece vs WordPiece differences, no character offsets from Transformers.js pipeline, fuzzy text matching required. An instruction-following LLM that outputs structured JSON is categorically better.
 - **pdfjs text extraction as sole text source**: Letter-spacing artifacts in styled PDFs are unsolvable at the text extraction level. Vision model fallback required.
 - **Naive `.join(' ')` on pdfjs text items**: Produces "C O N T A C T U S". Must use position-based grouping.
 - **Multiple gap thresholds (0.3x, 0.7x, 0.8x, 1.5x char width)**: None fully solve letter-spacing vs word-gap ambiguity. Vision model is the real answer.

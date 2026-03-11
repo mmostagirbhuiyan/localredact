@@ -9,15 +9,17 @@
 6. Update Session State at END of each session
 
 ## Architecture
-React SPA. Multi-pass PII detection: regex (instant) + Transformers.js ONNX NER (lazy-loaded, WebGPU).
+React SPA. Two-phase PII detection: regex (instant) + WebLLM LLM (lazy-loaded, WebGPU).
+LLM outputs structured JSON — no BIO tagging, no subword merging, no token classification.
 PDF text extraction via pdfjs-dist with SmolVLM vision fallback for problematic PDFs.
 True PDF redaction via render-to-image pipeline (pdfjs canvas → black boxes → pdf-lib image-only PDF).
 Hosted on Cloudflare Pages (static). See ROADMAP.md for full v2 implementation plan.
 
 ## Tech Stack
-Vite | React 18 | TypeScript | Tailwind CSS v4 (PostCSS) | Transformers.js (@huggingface/transformers v3+)
+Vite | React 18 | TypeScript | Tailwind CSS v4 (PostCSS) | @mlc-ai/web-llm (WebGPU LLM inference)
 pdfjs-dist | pdf-lib | lucide-react | framer-motion
-Target models: Piiranha v1 (PII detection), SmolVLM-256M (vision fallback)
+Target models: Llama 3.2 1B/3B Instruct (PII extraction), SmolVLM-256M (vision fallback)
+Reference: ../meridian uses same WebLLM + Llama 3.2 1B pattern for in-browser AI
 
 ## Commands
 - `npm run dev` — Start dev server
@@ -41,7 +43,8 @@ Target models: Piiranha v1 (PII detection), SmolVLM-256M (vision fallback)
 | src/lib/regex-patterns.ts | Instant regex PII detection (SSN, CC, email, phone, date) |
 | src/lib/entity-types.ts | Entity category definitions + color config |
 | src/lib/redactor.ts | Text replacement logic ([REDACTED] or black blocks) |
-| src/hooks/useNERModel.ts | Transformers.js model loading + inference |
+| src/hooks/useNERModel.ts | WebLLM model loading + PII inference (replacing token classifier) |
+| src/lib/pii-prompt.ts | System prompt for structured PII extraction via LLM |
 | src/hooks/usePDFParser.ts | pdfjs-dist text extraction |
 | src/components/DropZone.tsx | PDF drag-and-drop + text paste input |
 | src/components/DocumentViewer.tsx | Highlighted text with PII annotations |
@@ -75,16 +78,23 @@ Fonts: Space Grotesk (headings), Outfit (body). Dark-first, light mode supported
 
 ## Dead Approaches
 - Content stream surgery via pdf-lib for redaction — too many edge cases, one miss = data leak. Use render-to-image.
-- bert-base-NER for PII — only 4 generic types. Piiranha v1 has 17 PII types at 98%+ accuracy.
+- bert-base-NER for PII — only 4 generic types (PER, ORG, LOC, MISC). Not built for PII.
+- Piiranha v1 (DeBERTa token classifier) — broken BIO tags (all I-, no B-), label flipping mid-word, missed obvious names. Token classifiers don't understand context.
+- Token classification approach in general — BIO tagging + subword merging is fragile. SentencePiece vs WordPiece, no char offsets from Transformers.js. LLM with structured JSON output is categorically better.
 - pdfjs text extraction as sole text source — letter-spacing artifacts unsolvable. Vision model fallback needed.
 - Naive `.join(' ')` on pdfjs text items — produces "C O N T A C T U S". Use position-based grouping.
 - Gap thresholds (0.3x-1.5x char width) — can't disambiguate letter-spacing vs word gaps. Vision model is the answer.
 
 ## Session State
-Last Updated: 2026-03-10 | Session 2
-Current Status: v1 functional (regex + bert-base-NER). Research complete for v2 architecture.
-NER subword merging fixed (commit 6987cf3). PDF text extraction improved but has letter-spacing limits.
-Next: Phase 1 of ROADMAP.md — replace bert-base-NER with Piiranha v1, add WebGPU, multi-pass detection.
+Last Updated: 2026-03-10 | Session 3
+Current Status: v1 functional (regex only — NER model being replaced). Piiranha v1 tested and rejected.
+Decision: Replace ALL token classifiers with WebLLM (Llama 3.2 1B Instruct) for PII extraction.
+Pattern proven in ../meridian project. Modern laptops have the compute for 1-3B LLMs via WebGPU.
+Next: Phase 1.1 of ROADMAP.md — add @mlc-ai/web-llm, create useWebLLM hook.
 
 ## Archived Sessions
-<!-- None yet -->
+### Session 2 (2026-03-10)
+NER subword merging fixed (6987cf3). PDF text extraction improved. v2 roadmap created.
+### Session 3 (2026-03-10)
+Tested Piiranha v1 — failed badly (no B- tags, missed names, label flipping). Pivoted to WebLLM approach.
+Updated ROADMAP.md: Phase 1 now uses WebLLM + Llama 3.2 instead of token classifiers.
