@@ -116,8 +116,8 @@ Todo:
 - [x] Side-by-side before/after comparison view
 
 ### 4.3 Batch Processing
-- [ ] Multi-file drag-and-drop
-- [ ] Queue with per-file progress
+- [x] Multi-file drag-and-drop
+- [x] Queue with per-file progress
 - [ ] Batch redaction settings (apply same rules to all files)
 
 ---

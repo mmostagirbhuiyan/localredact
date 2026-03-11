@@ -13,7 +13,7 @@ import { useNERModel, MODEL_ID } from './hooks/useNERModel';
 import { detectWithRegex } from './lib/regex-patterns';
 import { redactText, RedactStyle } from './lib/redactor';
 import { createRedactedPDF } from './lib/pdf-redactor';
-import { DetectedEntity } from './lib/entity-types';
+import { DetectedEntity, EntityCategory, ENTITY_CONFIG } from './lib/entity-types';
 import { generateRedactionReport } from './lib/redaction-report';
 
 type AppState = 'input' | 'scanning' | 'review' | 'redacted';
@@ -25,6 +25,10 @@ interface QueueItem {
   entityCount?: number;
 }
 
+const ALL_CATEGORIES = Object.keys(ENTITY_CONFIG) as EntityCategory[];
+const defaultCategoryRules = (): Record<EntityCategory, boolean> =>
+  Object.fromEntries(ALL_CATEGORIES.map(c => [c, true])) as Record<EntityCategory, boolean>;
+
 const App: React.FC = () => {
   const [appState, setAppState] = useState<AppState>('input');
   const [entities, setEntities] = useState<DetectedEntity[]>([]);
@@ -33,6 +37,7 @@ const App: React.FC = () => {
   const [showComparison, setShowComparison] = useState(false);
   const [fileQueue, setFileQueue] = useState<QueueItem[]>([]);
   const [activeQueueIdx, setActiveQueueIdx] = useState(-1);
+  const [batchCategoryRules, setBatchCategoryRules] = useState<Record<EntityCategory, boolean>>(defaultCategoryRules);
   const [redactedPdfBytes, setRedactedPdfBytes] = useState<Uint8Array | null>(null);
   const [redacting, setRedacting] = useState(false);
   const [redactProgress, setRedactProgress] = useState('');
@@ -43,7 +48,14 @@ const App: React.FC = () => {
   // Phase 1: Instant regex detection when text is available
   useEffect(() => {
     if (pdf.text && appState === 'scanning') {
-      const regexEntities = detectWithRegex(pdf.text);
+      let regexEntities = detectWithRegex(pdf.text);
+      // Apply batch category rules if in batch mode
+      if (fileQueue.length > 1) {
+        regexEntities = regexEntities.map(e => ({
+          ...e,
+          accepted: batchCategoryRules[e.category] ?? true,
+        }));
+      }
       setEntities(regexEntities);
       setAppState('review');
 
@@ -63,9 +75,16 @@ const App: React.FC = () => {
         setEntities((prev) => {
           // Merge NER entities, avoiding overlaps with regex entities
           const existing = new Set(prev.map((e) => `${e.start}-${e.end}`));
-          const newEntities = nerEntities.filter(
+          let newEntities = nerEntities.filter(
             (e) => !existing.has(`${e.start}-${e.end}`),
           );
+          // Apply batch category rules if in batch mode
+          if (fileQueue.length > 1) {
+            newEntities = newEntities.map(e => ({
+              ...e,
+              accepted: batchCategoryRules[e.category] ?? true,
+            }));
+          }
           return [...prev, ...newEntities].sort((a, b) => a.start - b.start);
         });
       });
@@ -79,6 +98,7 @@ const App: React.FC = () => {
       setRedactedText(null);
       setRedactedPdfBytes(null);
       setShowComparison(false);
+      nerScannedRef.current = null;
       pdf.parseFile(file);
     },
     [pdf],
@@ -99,6 +119,7 @@ const App: React.FC = () => {
       setRedactedText(null);
       setRedactedPdfBytes(null);
       setShowComparison(false);
+      nerScannedRef.current = null;
       pdf.parseFile(files[0]);
     },
     [pdf],
@@ -227,6 +248,52 @@ const App: React.FC = () => {
     }
   }, [pdf.text, pdf.isPDF, pdf.pages, entities, redactStyle]);
 
+  const handleRedactAndNext = useCallback(async () => {
+    if (!pdf.text || !pdf.isPDF) return;
+    const pdfDoc = pdf.getPDFDocument();
+    if (!pdfDoc) return;
+
+    setRedacting(true);
+    setRedactProgress('Preparing...');
+    try {
+      const bytes = await createRedactedPDF(pdfDoc, entities, pdf.pages, (current, total) => {
+        setRedactProgress(`Rendering page ${current}/${total}...`);
+      });
+
+      // Save to queue and advance
+      const accepted = entities.filter(e => e.accepted).length;
+      const nextIdx = fileQueue.findIndex((item, i) => i > activeQueueIdx && item.status === 'pending');
+
+      setFileQueue(prev => prev.map((item, i) => {
+        if (i === activeQueueIdx) {
+          return { ...item, status: 'done' as const, redactedBytes: bytes, entityCount: accepted };
+        }
+        if (i === nextIdx) return { ...item, status: 'active' as const };
+        return item;
+      }));
+
+      if (nextIdx === -1) {
+        // Last file — show redacted state
+        setRedactedPdfBytes(bytes);
+        const result = redactText(pdf.text, entities, redactStyle);
+        setRedactedText(result);
+        setAppState('redacted');
+      } else {
+        // Advance to next file
+        setActiveQueueIdx(nextIdx);
+        setAppState('scanning');
+        setEntities([]);
+        setRedactedText(null);
+        setRedactedPdfBytes(null);
+        setShowComparison(false);
+        nerScannedRef.current = null;
+        pdf.parseFile(fileQueue[nextIdx].file);
+      }
+    } finally {
+      setRedacting(false);
+    }
+  }, [pdf.text, pdf.isPDF, pdf.pages, entities, redactStyle, fileQueue, activeQueueIdx, pdf]);
+
   const handleDownload = useCallback(() => {
     if (redactedPdfBytes) {
       // Download redacted PDF
@@ -273,6 +340,7 @@ const App: React.FC = () => {
     setRedactedPdfBytes(null);
     setFileQueue([]);
     setActiveQueueIdx(-1);
+    setBatchCategoryRules(defaultCategoryRules());
     setShowComparison(false);
     nerScannedRef.current = null;
     pdf.reset();
@@ -417,7 +485,7 @@ const App: React.FC = () => {
                     activePhase = redactProgress || 'Redacting...';
                     activePercent = 85;
                   } else if (appState === 'review') {
-                    activePhase = `${entities.length} entities found — reviewing`;
+                    activePhase = `${entities.length} entities found — ready to redact`;
                     activePercent = 80;
                   } else if (appState === 'redacted') {
                     activePhase = 'Redacted — ready to download';
@@ -436,7 +504,10 @@ const App: React.FC = () => {
                       }}
                     >
                       {item.status === 'done' && <Check size={12} style={{ color: 'var(--accent-primary)' }} />}
-                      {isActive && <Loader2 size={12} className={appState === 'redacted' ? '' : 'animate-spin'} style={{ color: 'var(--accent-primary)' }} />}
+                      {isActive && (() => {
+                        const isWorking = pdf.loading || appState === 'scanning' || ner.loading || !!ner.inferenceProgress || redacting;
+                        return <Loader2 size={12} className={isWorking ? 'animate-spin' : ''} style={{ color: 'var(--accent-primary)' }} />;
+                      })()}
                       {item.status === 'skipped' && <SkipForward size={12} style={{ color: 'var(--ink-faint)' }} />}
                       {item.status === 'pending' && <div className="w-3 h-3 rounded-full" style={{ border: '1px solid var(--border-default)' }} />}
                       <span
@@ -505,6 +576,35 @@ const App: React.FC = () => {
                   background: 'var(--accent-primary)',
                 }}
               />
+            </div>
+            {/* Batch category rules */}
+            <div className="mt-3">
+              <p className="text-xs font-medium mb-2" style={{ color: 'var(--ink-tertiary)' }}>
+                Auto-redact categories (applied to each new file):
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {ALL_CATEGORIES.map(cat => (
+                  <button
+                    key={cat}
+                    onClick={() => setBatchCategoryRules(prev => ({ ...prev, [cat]: !prev[cat] }))}
+                    className="px-2.5 py-1 rounded-full text-xs font-medium transition-all"
+                    style={{
+                      background: batchCategoryRules[cat]
+                        ? `var(${ENTITY_CONFIG[cat].softVar})`
+                        : 'var(--bg-base)',
+                      color: batchCategoryRules[cat]
+                        ? `var(${ENTITY_CONFIG[cat].colorVar})`
+                        : 'var(--ink-faint)',
+                      border: batchCategoryRules[cat]
+                        ? `1px solid var(${ENTITY_CONFIG[cat].colorVar})`
+                        : '1px solid var(--border-subtle)',
+                      opacity: batchCategoryRules[cat] ? 1 : 0.6,
+                    }}
+                  >
+                    {ENTITY_CONFIG[cat].label}
+                  </button>
+                ))}
+              </div>
             </div>
             {/* Download all button when batch is complete */}
             {fileQueue.every(q => q.status === 'done' || q.status === 'skipped') && (
@@ -708,14 +808,30 @@ const App: React.FC = () => {
                 onEditText={handleEditEntityText}
                 focusedEntityId={focusedEntityId}
               />
-              {fileQueue.length > 1 && fileQueue.some((q, i) => i > activeQueueIdx && q.status === 'pending') && (
-                <button
-                  onClick={handleSkipFile}
-                  className="btn-secondary w-full flex items-center justify-center gap-2 text-xs"
-                >
-                  <SkipForward size={14} />
-                  Skip this file
-                </button>
+              {fileQueue.length > 1 && (
+                <div className="space-y-2 pt-2" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+                  <button
+                    onClick={handleRedactAndNext}
+                    disabled={acceptedCount === 0 || redacting}
+                    className="btn-primary w-full flex items-center justify-center gap-2"
+                    style={{ opacity: acceptedCount > 0 && !redacting ? 1 : 0.5 }}
+                  >
+                    {redacting ? (
+                      <><Loader2 size={16} className="animate-spin" />{redactProgress || 'Redacting...'}</>
+                    ) : (
+                      <><ChevronRight size={16} />Redact & Next File</>
+                    )}
+                  </button>
+                  {fileQueue.some((q, i) => i > activeQueueIdx && q.status === 'pending') && (
+                    <button
+                      onClick={handleSkipFile}
+                      className="btn-secondary w-full flex items-center justify-center gap-2 text-xs"
+                    >
+                      <SkipForward size={14} />
+                      Skip this file
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           </div>
