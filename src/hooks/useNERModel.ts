@@ -15,6 +15,7 @@ interface WebLLMEngine {
       }>;
     };
   };
+  resetChat: (keepStats?: boolean) => Promise<void>;
   unload: () => void;
 }
 
@@ -235,6 +236,9 @@ export function useNERModel() {
       const existingRanges = new Set<string>();
 
       for (const chunk of chunks) {
+        // Reset chat history to prevent context bleed between chunks
+        await engineRef.current.resetChat(true);
+
         let response = '';
         const completion = await engineRef.current.chat.completions.create({
           messages: [
