@@ -343,5 +343,75 @@ export async function createRedactedPDF(
     catalogDict.delete(PDFName.of('Metadata'));
   }
 
-  return outputPdf.save();
+  const pdfBytes = await outputPdf.save();
+
+  // Hex verification: scan output bytes for leaked PII strings
+  const piiStrings = entities
+    .filter((e) => e.accepted)
+    .map((e) => e.text)
+    .filter((t) => t.length >= 4); // Skip very short strings (high false-positive rate)
+  const leaks = verifyNoPIIInBytes(pdfBytes, piiStrings);
+  if (leaks.length > 0) {
+    console.error('[LocalRedact] PII LEAK DETECTED in output PDF:', leaks);
+  } else {
+    console.log('[LocalRedact] Hex verification passed — zero PII strings found in output bytes.');
+  }
+
+  return pdfBytes;
+}
+
+export interface PIILeak {
+  text: string;
+  byteOffset: number;
+}
+
+/**
+ * Scan raw PDF bytes for any occurrence of PII strings.
+ * Checks both raw UTF-8 and UTF-16BE (PDF text encoding).
+ * Returns an array of leaks found (empty = clean).
+ */
+export function verifyNoPIIInBytes(
+  pdfBytes: Uint8Array,
+  piiStrings: string[],
+): PIILeak[] {
+  const leaks: PIILeak[] = [];
+  const seen = new Set<string>();
+
+  // Deduplicate PII strings
+  const unique = piiStrings.filter((s) => {
+    const lower = s.toLowerCase();
+    if (seen.has(lower)) return false;
+    seen.add(lower);
+    return true;
+  });
+
+  // Decode PDF bytes as latin1 (preserves all byte values as chars 0-255)
+  const latin1 = Array.from(pdfBytes, (b) => String.fromCharCode(b)).join('');
+
+  for (const pii of unique) {
+    // Check UTF-8 encoding (most common in modern PDFs)
+    const utf8Needle = pii;
+    const idx = latin1.indexOf(utf8Needle);
+    if (idx !== -1) {
+      leaks.push({ text: pii, byteOffset: idx });
+      continue;
+    }
+
+    // Check case-insensitive (catches metadata remnants)
+    const lowerHaystack = latin1.toLowerCase();
+    const lowerIdx = lowerHaystack.indexOf(pii.toLowerCase());
+    if (lowerIdx !== -1) {
+      leaks.push({ text: pii, byteOffset: lowerIdx });
+      continue;
+    }
+
+    // Check UTF-16BE encoding (PDF hex strings)
+    const utf16Needle = Array.from(pii, (ch) => '\x00' + ch).join('');
+    const utf16Idx = latin1.indexOf(utf16Needle);
+    if (utf16Idx !== -1) {
+      leaks.push({ text: pii, byteOffset: utf16Idx });
+    }
+  }
+
+  return leaks;
 }

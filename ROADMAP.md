@@ -63,7 +63,7 @@ Render-to-image pipeline. Content destruction, not visual overlay.
 - [x] Wipe title, author, dates; strip XMP metadata
 - [x] Fresh PDFDocument.create() = no embedded files/forms/JS
 - [x] Full rewrite save (not incremental)
-- [ ] Hex editor verification (grep output for original PII strings)
+- [x] Hex editor verification (grep output for original PII strings)
 
 ---
 
