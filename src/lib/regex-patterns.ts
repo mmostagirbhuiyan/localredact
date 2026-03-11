@@ -21,24 +21,34 @@ const PATTERNS: PatternDef[] = [
     pattern: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g,
     category: 'EMAIL',
   },
-  // Phone: various US formats
+  // Phone: US formats — require at least one separator or parentheses to avoid matching plain 10-digit numbers
   {
-    pattern: /(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/g,
+    pattern: /(?:\+?1[-.\s]?)?\(\d{3}\)[-.\s]?\d{3}[-.\s]?\d{4}\b/g,
     category: 'PHONE',
   },
-  // Date: MM/DD/YYYY, MM-DD-YYYY, YYYY-MM-DD
+  // Phone: no parens but with separators between groups
   {
-    pattern: /\b(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}[/-]\d{1,2}[/-]\d{1,2})\b/g,
+    pattern: /(?:\+?1[-.\s])?\d{3}[-.\s]\d{3}[-.\s]\d{4}\b/g,
+    category: 'PHONE',
+  },
+  // Date: MM/DD/YYYY, MM-DD-YYYY, YYYY-MM-DD (with basic validation)
+  {
+    pattern: /\b(?:0?[1-9]|1[0-2])[/-](?:0?[1-9]|[12]\d|3[01])[/-](?:\d{4}|\d{2})\b/g,
     category: 'DATE',
   },
-  // Date: Written format — "January 2, 2026", "Dec 15, 2024", "March 2025"
+  // Date: YYYY-MM-DD format
   {
-    pattern: /\b(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?\s+\d{1,2}(?:,\s*\d{4})?\b/gi,
+    pattern: /\b\d{4}[/-](?:0?[1-9]|1[0-2])[/-](?:0?[1-9]|[12]\d|3[01])\b/g,
+    category: 'DATE',
+  },
+  // Date: Written format with year — "January 2, 2026", "Dec 15, 2024"
+  {
+    pattern: /\b(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?\s+(?:0?[1-9]|[12]\d|3[01]),?\s+\d{4}\b/gi,
     category: 'DATE',
   },
   // Date: "15 January 2026" format
   {
-    pattern: /\b\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?\s*,?\s*\d{4}\b/gi,
+    pattern: /\b(?:0?[1-9]|[12]\d|3[01])\s+(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?\s*,?\s*\d{4}\b/gi,
     category: 'DATE',
   },
 ];
