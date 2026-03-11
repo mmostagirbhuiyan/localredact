@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import type { TextItem } from 'pdfjs-dist/types/src/display/api';
 
@@ -8,11 +8,22 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   import.meta.url,
 ).toString();
 
+export interface PDFPageInfo {
+  pageIndex: number;
+  width: number;   // PDF points
+  height: number;  // PDF points
+  textItems: TextItem[];
+  textStart: number; // char offset in fullText where this page's text begins
+  textEnd: number;   // char offset in fullText where this page's text ends
+}
+
 interface PDFParserState {
   text: string | null;
   loading: boolean;
   error: string | null;
   fileName: string | null;
+  pages: PDFPageInfo[];
+  isPDF: boolean;
 }
 
 /**
@@ -86,44 +97,79 @@ export function usePDFParser() {
     loading: false,
     error: null,
     fileName: null,
+    pages: [],
+    isPDF: false,
   });
 
+  const pdfDocRef = useRef<pdfjsLib.PDFDocumentProxy | null>(null);
+
   const parseFile = useCallback(async (file: File) => {
-    setState({ text: null, loading: true, error: null, fileName: file.name });
+    setState({ text: null, loading: true, error: null, fileName: file.name, pages: [], isPDF: true });
 
     try {
       const arrayBuffer = await file.arrayBuffer();
       const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-      const pages: string[] = [];
+      pdfDocRef.current = pdf;
+
+      const pageTexts: string[] = [];
+      const pageInfos: PDFPageInfo[] = [];
 
       for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i);
+        const viewport = page.getViewport({ scale: 1 });
         const content = await page.getTextContent({ disableNormalization: true });
         const textItems = content.items.filter(
           (item): item is TextItem => 'str' in item,
         );
-        pages.push(extractPageText(textItems));
+        pageTexts.push(extractPageText(textItems));
+        pageInfos.push({
+          pageIndex: i - 1,
+          width: viewport.width,
+          height: viewport.height,
+          textItems,
+          textStart: 0, // computed below
+          textEnd: 0,
+        });
       }
 
-      const fullText = normalizeSpacing(pages.join('\n\n'));
-      setState({ text: fullText, loading: false, error: null, fileName: file.name });
+      // Compute character offsets for each page in the full text
+      // Pages are joined with '\n\n', so add 2 chars between pages
+      let offset = 0;
+      for (let i = 0; i < pageTexts.length; i++) {
+        const normalizedPageText = normalizeSpacing(pageTexts[i]);
+        pageInfos[i].textStart = offset;
+        pageInfos[i].textEnd = offset + normalizedPageText.length;
+        offset += normalizedPageText.length + 2; // +2 for '\n\n' join
+      }
+
+      const fullText = normalizeSpacing(pageTexts.join('\n\n'));
+      setState({ text: fullText, loading: false, error: null, fileName: file.name, pages: pageInfos, isPDF: true });
     } catch (err) {
       setState({
         text: null,
         loading: false,
         error: err instanceof Error ? err.message : 'Failed to parse PDF',
         fileName: file.name,
+        pages: [],
+        isPDF: false,
       });
     }
   }, []);
 
   const setText = useCallback((text: string) => {
-    setState({ text, loading: false, error: null, fileName: null });
+    pdfDocRef.current = null;
+    setState({ text, loading: false, error: null, fileName: null, pages: [], isPDF: false });
   }, []);
 
   const reset = useCallback(() => {
-    setState({ text: null, loading: false, error: null, fileName: null });
+    pdfDocRef.current = null;
+    setState({ text: null, loading: false, error: null, fileName: null, pages: [], isPDF: false });
   }, []);
 
-  return { ...state, parseFile, setText, reset };
+  /**
+   * Get the pdfjs document proxy for rendering pages to canvas.
+   */
+  const getPDFDocument = useCallback(() => pdfDocRef.current, []);
+
+  return { ...state, parseFile, setText, reset, getPDFDocument };
 }

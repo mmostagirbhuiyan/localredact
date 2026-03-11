@@ -15,30 +15,34 @@ Modern laptops have the compute. A 1-3B instruct model understands context, foll
 and produces structured JSON — no BIO tag gymnastics, no broken subword merging.
 
 ### 1.1 WebLLM Integration
-- [ ] Add `@mlc-ai/web-llm` dependency
-- [ ] Create `src/hooks/useWebLLM.ts` — adapt pattern from Meridian project
-- [ ] WebGPU support detection (navigator.gpu), iOS exclusion, mobile checks
-- [ ] Lazy model loading with progress callback (model is ~500MB-1.5GB, cached after first load)
-- [ ] Model selection: `Llama-3.2-1B-Instruct-q4f16_1-MLC` (default), with option for 3B
+- [x] Add `@mlc-ai/web-llm` dependency
+- [x] Create WebLLM hook — adapted pattern from Meridian project (integrated into useNERModel.ts)
+- [x] WebGPU support detection (navigator.gpu), iOS exclusion, mobile checks
+- [x] Lazy model loading with progress callback (model cached after first load)
+- [x] Model selection: `Qwen2.5-1.5B-Instruct-q4f16_1-MLC` (Llama 3.2 refused PII work)
 
 ### 1.2 LLM-Based PII Extraction
-- [ ] Create `src/lib/pii-prompt.ts` — system prompt for structured PII extraction
-- [ ] Prompt design: input text → JSON array of `{type, text, start, end}` entities
-- [ ] Low temperature (0.1-0.2) for deterministic extraction, not creative generation
-- [ ] Chunking strategy: split text into ~1000 char chunks (LLM context is much larger than token classifiers)
-- [ ] JSON response parsing with validation and fallback
+- [x] Create `src/lib/pii-prompt.ts` — system prompt for structured PII extraction
+- [x] Prompt design: input text → JSON array of `{type, text}` entities
+- [x] Low temperature (0.1) for deterministic extraction
+- [x] Chunking strategy: split text into ~1500 char chunks with smart sentence/paragraph breaks
+- [x] JSON response parsing with markdown fence stripping, validation, and fallback
 
 ### 1.3 Two-Phase Detection Pipeline
-- [ ] Phase 1: Regex sweep (instant) — SSN, CC, email, phone, dates, IPs. Deterministic, zero false negatives.
-- [ ] Phase 2: LLM sweep via WebGPU — names, orgs, locations, addresses, contextual PII
-- [ ] Deduplicate: if regex already found an entity at [start, end], skip LLM duplicate
-- [ ] Merge results into unified entity list with source attribution (regex vs llm)
+- [x] Phase 1: Regex sweep (instant) — SSN, CC, email, phone, dates
+- [x] Phase 2: LLM sweep via WebGPU — names, orgs, locations, addresses
+- [x] Deduplicate: if regex already found an entity at [start, end], skip LLM duplicate
+- [x] Merge results into unified entity list with source attribution (regex vs ner)
 
 ### 1.4 Replace useNERModel Hook
-- [ ] Rewrite `src/hooks/useNERModel.ts` → use WebLLM instead of Transformers.js token-classification
-- [ ] Same public interface: `{ loading, ready, progress, error, loadModel, detect }`
-- [ ] Remove `@huggingface/transformers` dependency (or keep only for vision model in Phase 3)
-- [ ] Update vite.config.ts chunking: remove transformers chunk, add web-llm chunk
+- [x] Rewrite `src/hooks/useNERModel.ts` → uses WebLLM instead of Transformers.js token-classification
+- [x] Same public interface: `{ loading, ready, progress, error, loadModel, detect }`
+- [ ] Remove `@huggingface/transformers` dependency (keep for Phase 3 vision model)
+- [x] Update vite.config.ts chunking: web-llm chunk replaces transformers chunk
+
+### 1.5 AI Transparency Panel
+- [x] DevViewer component showing system prompt, user prompt, raw LLM response, parsed entities
+- [x] Collapsible accordion sections, model ID badge, read-only
 
 ---
 
@@ -125,13 +129,12 @@ For PDFs where text extraction fails (scanned docs, letter-spacing artifacts, im
 > Content stream surgery must handle every edge case or data leaks. Render-to-image is mathematically complete — if you can't see it, it's gone.
 
 ### Models
-| Model | Purpose | Size | Format |
+| Model | Purpose | Size | Status |
 |-------|---------|------|--------|
-| Llama 3.2 1B Instruct (q4f16) | PII extraction via structured prompting | ~500MB | MLC |
-| Llama 3.2 3B Instruct (q4f16) | PII extraction (higher accuracy option) | ~1.5GB | MLC |
-| Qwen 2.5 1.5B Instruct (q4f16) | Alternative — strong structured JSON output | ~800MB | MLC |
-| SmolVLM-256M | Vision model (page reading fallback) | ~256MB | ONNX |
-| SmolDocling (future) | Document structure | TBD | ONNX |
+| Qwen 2.5 1.5B Instruct (q4f16) | PII extraction — default | ~830MB | Active |
+| gemma-2-2b-it (q4f16) | PII extraction — alternative | ~830MB | Tested, works |
+| Llama 3.2 1B/3B Instruct | PII extraction | ~500MB/1.5GB | Rejected (safety refusal) |
+| SmolVLM-256M | Vision model (page reading fallback) | ~256MB | Phase 3 |
 
 ### WebGPU Browser Support (as of 2026)
 - Chrome 113+ (shipped May 2023)

@@ -11,6 +11,7 @@ import { usePDFParser } from './hooks/usePDFParser';
 import { useNERModel, MODEL_ID } from './hooks/useNERModel';
 import { detectWithRegex } from './lib/regex-patterns';
 import { redactText, RedactStyle } from './lib/redactor';
+import { createRedactedPDF } from './lib/pdf-redactor';
 import { DetectedEntity } from './lib/entity-types';
 
 type AppState = 'input' | 'scanning' | 'review' | 'redacted';
@@ -86,30 +87,64 @@ const App: React.FC = () => {
     setEntities((prev) => prev.map((e) => ({ ...e, accepted: false })));
   }, []);
 
-  const handleRedact = useCallback(() => {
+  const [redactedPdfBytes, setRedactedPdfBytes] = useState<Uint8Array | null>(null);
+  const [redacting, setRedacting] = useState(false);
+
+  const handleRedact = useCallback(async () => {
     if (!pdf.text) return;
-    const result = redactText(pdf.text, entities, redactStyle);
-    setRedactedText(result);
-    setAppState('redacted');
-  }, [pdf.text, entities, redactStyle]);
+
+    if (pdf.isPDF) {
+      const pdfDoc = pdf.getPDFDocument();
+      if (!pdfDoc) return;
+      setRedacting(true);
+      try {
+        const bytes = await createRedactedPDF(pdfDoc, entities, pdf.pages);
+        setRedactedPdfBytes(bytes);
+        // Also produce text version for preview
+        const result = redactText(pdf.text, entities, redactStyle);
+        setRedactedText(result);
+        setAppState('redacted');
+      } finally {
+        setRedacting(false);
+      }
+    } else {
+      const result = redactText(pdf.text, entities, redactStyle);
+      setRedactedText(result);
+      setAppState('redacted');
+    }
+  }, [pdf.text, pdf.isPDF, pdf.pages, entities, redactStyle]);
 
   const handleDownload = useCallback(() => {
-    if (!redactedText) return;
-    const blob = new Blob([redactedText], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = pdf.fileName
-      ? pdf.fileName.replace(/\.pdf$/i, '_redacted.txt')
-      : 'redacted.txt';
-    a.click();
-    URL.revokeObjectURL(url);
-  }, [redactedText, pdf.fileName]);
+    if (redactedPdfBytes) {
+      // Download redacted PDF
+      const blob = new Blob([redactedPdfBytes.buffer as ArrayBuffer], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = pdf.fileName
+        ? pdf.fileName.replace(/\.pdf$/i, '_redacted.pdf')
+        : 'redacted.pdf';
+      a.click();
+      URL.revokeObjectURL(url);
+    } else if (redactedText) {
+      // Download redacted text
+      const blob = new Blob([redactedText], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = pdf.fileName
+        ? pdf.fileName.replace(/\.pdf$/i, '_redacted.txt')
+        : 'redacted.txt';
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  }, [redactedText, redactedPdfBytes, pdf.fileName]);
 
   const handleStartOver = useCallback(() => {
     setAppState('input');
     setEntities([]);
     setRedactedText(null);
+    setRedactedPdfBytes(null);
     pdf.reset();
   }, [pdf]);
 
@@ -266,6 +301,8 @@ const App: React.FC = () => {
                 onRedact={handleRedact}
                 onDownload={handleDownload}
                 redacted={false}
+                redacting={redacting}
+                isPDF={pdf.isPDF}
               />
               <EntityList
                 entities={entities}
@@ -306,6 +343,7 @@ const App: React.FC = () => {
                 onRedact={handleRedact}
                 onDownload={handleDownload}
                 redacted={true}
+                isPDF={pdf.isPDF}
               />
             </div>
           </div>

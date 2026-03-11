@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShieldCheck, Download, CheckCheck, XCircle } from 'lucide-react';
+import { ShieldCheck, Download, CheckCheck, XCircle, Loader2 } from 'lucide-react';
 import { RedactStyle } from '../lib/redactor';
 
 interface RedactControlsProps {
@@ -12,6 +12,8 @@ interface RedactControlsProps {
   onRedact: () => void;
   onDownload: () => void;
   redacted: boolean;
+  redacting?: boolean;
+  isPDF?: boolean;
 }
 
 export const RedactControls: React.FC<RedactControlsProps> = ({
@@ -24,6 +26,8 @@ export const RedactControls: React.FC<RedactControlsProps> = ({
   onRedact,
   onDownload,
   redacted,
+  redacting = false,
+  isPDF = false,
 }) => {
   return (
     <div className="glass-panel rounded-2xl p-4 space-y-4">
@@ -87,17 +91,26 @@ export const RedactControls: React.FC<RedactControlsProps> = ({
       {!redacted ? (
         <button
           onClick={onRedact}
-          disabled={acceptedCount === 0}
+          disabled={acceptedCount === 0 || redacting}
           className="btn-primary w-full"
-          style={{ opacity: acceptedCount > 0 ? 1 : 0.5 }}
+          style={{ opacity: acceptedCount > 0 && !redacting ? 1 : 0.5 }}
         >
-          <ShieldCheck size={16} />
-          Redact {acceptedCount} Entities
+          {redacting ? (
+            <>
+              <Loader2 size={16} className="animate-spin" />
+              Redacting PDF...
+            </>
+          ) : (
+            <>
+              <ShieldCheck size={16} />
+              Redact {acceptedCount} Entities
+            </>
+          )}
         </button>
       ) : (
         <button onClick={onDownload} className="btn-primary w-full">
           <Download size={16} />
-          Download Redacted
+          Download {isPDF ? 'Redacted PDF' : 'Redacted Text'}
         </button>
       )}
 
