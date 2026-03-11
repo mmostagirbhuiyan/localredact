@@ -63,7 +63,7 @@ export const DevViewer: React.FC<DevViewerProps> = ({ debugLog, modelId }) => {
         <div className="p-3 space-y-2 max-h-[400px] overflow-y-auto">
           {/* Chunk navigation */}
           {latest.totalChunks > 1 && (
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5 flex-wrap">
               {debugLog.map((entry, i) => (
                 <button
                   key={i}

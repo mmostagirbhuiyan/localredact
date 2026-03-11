@@ -362,7 +362,7 @@ export function useNERModel() {
           ],
           stream: true,
           temperature: 0,
-          max_tokens: 1024,
+          max_tokens: 1536,
         });
 
         for await (const part of completion) {
