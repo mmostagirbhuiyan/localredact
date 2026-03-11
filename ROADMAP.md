@@ -138,8 +138,9 @@ For PDFs where text extraction fails (scanned docs, letter-spacing artifacts, im
 ### Models
 | Model | Purpose | Size | Status |
 |-------|---------|------|--------|
-| gemma-2-2b-it (q4f16) | PII extraction — default | ~830MB | Active |
-| Qwen 2.5 1.5B Instruct (q4f16) | PII extraction — alternative | ~830MB | Tested, misses entities on dense docs |
+| Qwen3-4B (q4f16) | PII extraction — default | ~2.5GB | Active |
+| gemma-2-2b-it (q4f16) | PII extraction — previous | ~830MB | Replaced (empty results on dense docs) |
+| Qwen 2.5 1.5B Instruct (q4f16) | PII extraction — tested | ~830MB | Tested, misses entities on dense docs |
 | Llama 3.2 1B/3B Instruct | PII extraction | ~500MB/1.5GB | Rejected (safety refusal) |
 | SmolVLM-256M | Vision model (page reading fallback) | ~256MB | Phase 3 |
 

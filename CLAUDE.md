@@ -18,8 +18,8 @@ Hosted on Cloudflare Pages (static). See ROADMAP.md for full v2 implementation p
 ## Tech Stack
 Vite | React 18 | TypeScript | Tailwind CSS v4 (PostCSS) | @mlc-ai/web-llm (WebGPU LLM inference)
 pdfjs-dist | pdf-lib | lucide-react | framer-motion
-Target models: Llama 3.2 1B/3B Instruct (PII extraction), SmolVLM-256M (vision fallback)
-Reference: ../meridian uses same WebLLM + Llama 3.2 1B pattern for in-browser AI
+Active model: Qwen3-4B-q4f16_1-MLC (PII extraction, ~2.5GB, WebGPU). SmolVLM-256M (vision fallback, Phase 3)
+Reference: ../meridian uses same WebLLM pattern for in-browser AI
 
 ## Commands
 - `npm run dev` — Start dev server
@@ -88,14 +88,16 @@ Fonts: Space Grotesk (headings), Outfit (body). Dark-first, light mode supported
 - pdfjs text extraction as sole text source — letter-spacing artifacts unsolvable. Vision model fallback needed.
 - Naive `.join(' ')` on pdfjs text items — produces "C O N T A C T U S". Use position-based grouping.
 - Gap thresholds (0.3x-1.5x char width) — can't disambiguate letter-spacing vs word gaps. Vision model is the answer.
+- gemma-2-2b-it for PII — returns empty `text` values on dense/tabular content (utility bills). Too small for reliable structured extraction. Replaced by Qwen3-4B.
 
 ## Session State
-Last Updated: 2026-03-10 | Session 5
-Current Status: In-place PDF redaction working. Phase 1-2 complete. Phase 4.1 mostly done.
-PDF flow: upload → render pages in viewer → detect PII → colored overlay boxes → accept/reject → black boxes → download.
+Last Updated: 2026-03-10 | Session 6
+Current Status: Full pipeline working end-to-end. Qwen3-4B finds all PII (names, orgs, addresses, account numbers).
+PDF flow: upload → render pages in viewer → detect PII (regex instant + LLM) → colored overlay boxes → accept/reject → black boxes → download.
 Text flow: paste → highlight text → detect → redact text → download.
+Model: Qwen3-4B-q4f16_1-MLC (~2.5GB, cached after first load). Temperature 0 for deterministic output.
 Components: PDFPageViewer (multi-page, zoom, lazy) + PDFPageCanvas (per-page canvas + overlay divs).
-Next: Test end-to-end with real PDFs, then Phase 3 (vision fallback).
+Next: Test with real PDFs (PSEG bill etc.), then Phase 3 (SmolVLM vision fallback).
 
 ## Archived Sessions
 ### Session 2 (2026-03-10)
@@ -113,3 +115,11 @@ In-place PDF redaction: PDFPageViewer + PDFPageCanvas render actual PDF pages wi
 Review mode: colored semi-transparent boxes per category. Redacted mode: solid black boxes.
 Category toggles, keyboard shortcuts (Tab/Space/Enter/Delete), metadata sanitization complete.
 Fixed text matching in pdf-redactor (mirrors extractPageText spacing for proper item lookup).
+### Session 6 (2026-03-10)
+LLM pipeline overhaul: switched gemma-2-2b → Qwen3-4B (much better at structured extraction).
+Fixed critical bug: NER detection only fired once per session (useEffect dep on ner.ready only).
+Fixed entity text matching: fuzzy whitespace matching so LLM entities found despite PDF spacing diffs.
+Added `<think>` block stripping for Qwen3. ACCOUNT_NUMBER entity type. Chunk overlap (200 chars).
+Improved prompt: explicit field label guidance, /no_think, deterministic (temp=0).
+Error logging: failures surfaced to console instead of silently swallowed.
+Verified end-to-end: 10/10 entities detected on test text (names, org, addresses, account#, SSN, phone, date).

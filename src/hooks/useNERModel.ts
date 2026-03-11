@@ -41,7 +41,7 @@ interface PIIEntity {
   text: string;
 }
 
-export const MODEL_ID = 'gemma-2-2b-it-q4f16_1-MLC';
+export const MODEL_ID = 'Qwen3-4B-q4f16_1-MLC';
 
 function checkWebGPUSupport(): boolean {
   if (typeof navigator === 'undefined') return false;
@@ -64,6 +64,7 @@ function mapLLMType(type: string): EntityCategory | null {
     case 'LOCATION': return 'LOCATION';
     case 'ADDRESS': return 'LOCATION';
     case 'DATE': return 'DATE';
+    case 'ACCOUNT_NUMBER': return 'SSN';
     case 'USERNAME': return 'PERSON';
     case 'PASSWORD': return 'SSN';
     case 'ID_NUMBER': return 'SSN';
@@ -77,6 +78,10 @@ function mapLLMType(type: string): EntityCategory | null {
  */
 function parseLLMResponse(response: string): PIIEntity[] {
   let cleaned = response.trim();
+
+  // Strip Qwen3 thinking blocks: <think>...</think>
+  cleaned = cleaned.replace(/<think>[\s\S]*?<\/think>/gi, '');
+  cleaned = cleaned.trim();
 
   // Strip markdown code fences
   cleaned = cleaned.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '');
@@ -110,7 +115,16 @@ function parseLLMResponse(response: string): PIIEntity[] {
 }
 
 /**
- * Find all occurrences of an entity text in the source and return char offsets.
+ * Normalize whitespace for comparison: collapse runs of spaces/newlines into single space.
+ */
+function normalizeWS(s: string): string {
+  return s.replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+/**
+ * Find all occurrences of entity text in source, with fuzzy whitespace matching.
+ * PDF text extraction often produces different spacing than what the LLM sees,
+ * so we normalize whitespace for comparison but return the actual source positions.
  */
 function findEntityPositions(
   entityText: string,
@@ -118,8 +132,11 @@ function findEntityPositions(
   existingRanges: Set<string>,
 ): { start: number; end: number }[] {
   const positions: { start: number; end: number }[] = [];
-  let searchFrom = 0;
+  const normalizedEntity = normalizeWS(entityText);
+  if (!normalizedEntity) return positions;
 
+  // First try exact match (fast path)
+  let searchFrom = 0;
   while (searchFrom < sourceText.length) {
     const idx = sourceText.indexOf(entityText, searchFrom);
     if (idx === -1) break;
@@ -127,6 +144,44 @@ function findEntityPositions(
     const rangeKey = `${idx}-${idx + entityText.length}`;
     if (!existingRanges.has(rangeKey)) {
       positions.push({ start: idx, end: idx + entityText.length });
+    }
+    searchFrom = idx + 1;
+  }
+
+  if (positions.length > 0) return positions;
+
+  // Fuzzy match: case-insensitive with normalized whitespace.
+  // Slide a window through the source text looking for spans whose
+  // normalized form matches the normalized entity.
+  const sourceLower = sourceText.toLowerCase();
+  const entityWords = normalizedEntity.split(' ');
+  const firstWord = entityWords[0];
+
+  searchFrom = 0;
+  while (searchFrom < sourceLower.length) {
+    const idx = sourceLower.indexOf(firstWord, searchFrom);
+    if (idx === -1) break;
+
+    // Try to match the full entity starting from here, allowing flexible whitespace
+    let si = idx;
+    let matched = true;
+    for (const word of entityWords) {
+      // Skip whitespace in source
+      while (si < sourceText.length && /\s/.test(sourceText[si])) si++;
+      // Check if word matches at current position
+      const srcSlice = sourceLower.slice(si, si + word.length);
+      if (srcSlice !== word) {
+        matched = false;
+        break;
+      }
+      si += word.length;
+    }
+
+    if (matched) {
+      const rangeKey = `${idx}-${si}`;
+      if (!existingRanges.has(rangeKey)) {
+        positions.push({ start: idx, end: si });
+      }
     }
     searchFrom = idx + 1;
   }
@@ -205,15 +260,15 @@ export function useNERModel() {
     setDebugLog([]);
 
     try {
-      // Chunk text for LLM processing. LLM context is much larger than
-      // token classifiers, so we can use bigger chunks.
+      // Chunk text for LLM processing with overlap to catch boundary entities.
       const maxChunkSize = 1500;
-      const chunks: string[] = [];
+      const overlapSize = 200; // chars of overlap between chunks
+      const chunks: { text: string; offset: number }[] = [];
       let pos = 0;
 
       while (pos < text.length) {
         if (pos + maxChunkSize >= text.length) {
-          chunks.push(text.slice(pos));
+          chunks.push({ text: text.slice(pos), offset: pos });
           break;
         }
         const window = text.slice(pos, pos + maxChunkSize);
@@ -231,14 +286,16 @@ export function useNERModel() {
           }
         }
         const end = breakAt > 0 ? breakAt : maxChunkSize;
-        chunks.push(text.slice(pos, pos + end));
-        pos += end;
+        chunks.push({ text: text.slice(pos, pos + end), offset: pos });
+        // Step forward minus overlap so next chunk re-scans the tail
+        pos += Math.max(end - overlapSize, Math.floor(end / 2));
       }
 
       const allEntities: DetectedEntity[] = [];
       const existingRanges = new Set<string>();
 
-      for (const chunk of chunks) {
+      for (let ci = 0; ci < chunks.length; ci++) {
+        const chunk = chunks[ci];
         // Reset chat history to prevent context bleed between chunks
         await engineRef.current.resetChat(true);
 
@@ -246,11 +303,11 @@ export function useNERModel() {
         const completion = await engineRef.current.chat.completions.create({
           messages: [
             { role: 'system', content: PII_SYSTEM_PROMPT },
-            { role: 'user', content: buildPIIUserPrompt(chunk) },
+            { role: 'user', content: buildPIIUserPrompt(chunk.text) },
           ],
           stream: true,
-          temperature: 0.1,
-          max_tokens: 1024,
+          temperature: 0,
+          max_tokens: 2048,
         });
 
         for await (const part of completion) {
@@ -262,9 +319,9 @@ export function useNERModel() {
         const piiEntities = parseLLMResponse(response);
         console.log('[LLM] Parsed entities:', JSON.stringify(piiEntities));
 
-        const userPrompt = buildPIIUserPrompt(chunk);
+        const userPrompt = buildPIIUserPrompt(chunk.text);
         setDebugLog(prev => [...prev, {
-          chunkIndex: chunks.indexOf(chunk),
+          chunkIndex: ci,
           totalChunks: chunks.length,
           systemPrompt: PII_SYSTEM_PROMPT,
           userPrompt,
@@ -275,10 +332,17 @@ export function useNERModel() {
 
         for (const entity of piiEntities) {
           const category = mapLLMType(entity.type);
-          if (!category) continue;
+          if (!category) {
+            console.warn('[LLM] Unknown entity type, skipping:', entity.type, entity.text);
+            continue;
+          }
 
           // Find all positions of this entity in the full source text
           const positions = findEntityPositions(entity.text, text, existingRanges);
+
+          if (positions.length === 0) {
+            console.warn('[LLM] Entity not found in source text:', JSON.stringify(entity));
+          }
 
           for (const pos of positions) {
             const rangeKey = `${pos.start}-${pos.end}`;
@@ -297,7 +361,8 @@ export function useNERModel() {
       }
 
       return allEntities.sort((a, b) => a.start - b.start);
-    } catch {
+    } catch (err) {
+      console.error('[LLM] Detection failed:', err);
       return [];
     }
   }, []);

@@ -38,9 +38,13 @@ const App: React.FC = () => {
     }
   }, [pdf.text, appState]);
 
-  // Phase 2: NER detection when model is ready
+  // Phase 2: NER detection when model is ready and we have text to scan.
+  // Track which text has been scanned to avoid duplicate runs.
+  const nerScannedRef = React.useRef<string | null>(null);
+
   useEffect(() => {
-    if (ner.ready && pdf.text && appState === 'review') {
+    if (ner.ready && pdf.text && appState === 'review' && nerScannedRef.current !== pdf.text) {
+      nerScannedRef.current = pdf.text;
       ner.detect(pdf.text).then((nerEntities) => {
         setEntities((prev) => {
           // Merge NER entities, avoiding overlaps with regex entities
@@ -52,7 +56,7 @@ const App: React.FC = () => {
         });
       });
     }
-  }, [ner.ready]);
+  }, [ner.ready, pdf.text, appState]);
 
   const handleFileSelect = useCallback(
     (file: File) => {
@@ -156,6 +160,7 @@ const App: React.FC = () => {
     setEntities([]);
     setRedactedText(null);
     setRedactedPdfBytes(null);
+    nerScannedRef.current = null;
     pdf.reset();
   }, [pdf]);
 
@@ -320,7 +325,7 @@ const App: React.FC = () => {
                       Loading AI Detection Model
                     </h3>
                     <p className="text-xs mb-4" style={{ color: 'var(--ink-tertiary)' }}>
-                      Downloading and initializing (~830MB)
+                      Downloading and initializing (~2.5GB, one-time)
                     </p>
 
                     <div className="max-w-xs mx-auto">
