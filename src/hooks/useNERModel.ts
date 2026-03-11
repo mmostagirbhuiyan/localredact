@@ -137,8 +137,8 @@ function findEntityPositions(
   entityText: string,
   sourceText: string,
   existingRanges: Set<string>,
-): { start: number; end: number }[] {
-  const positions: { start: number; end: number }[] = [];
+): { start: number; end: number; matchType: 'exact' | 'fuzzy' }[] {
+  const positions: { start: number; end: number; matchType: 'exact' | 'fuzzy' }[] = [];
   const normalizedEntity = normalizeWS(entityText);
   if (!normalizedEntity) return positions;
 
@@ -150,7 +150,7 @@ function findEntityPositions(
 
     const rangeKey = `${idx}-${idx + entityText.length}`;
     if (!existingRanges.has(rangeKey)) {
-      positions.push({ start: idx, end: idx + entityText.length });
+      positions.push({ start: idx, end: idx + entityText.length, matchType: 'exact' });
     }
     searchFrom = idx + 1;
   }
@@ -187,7 +187,7 @@ function findEntityPositions(
     if (matched) {
       const rangeKey = `${idx}-${si}`;
       if (!existingRanges.has(rangeKey)) {
-        positions.push({ start: idx, end: si });
+        positions.push({ start: idx, end: si, matchType: 'fuzzy' });
       }
     }
     searchFrom = idx + 1;
@@ -362,7 +362,7 @@ export function useNERModel() {
           ],
           stream: true,
           temperature: 0,
-          max_tokens: 1536,
+          max_tokens: 1024,
         });
 
         for await (const part of completion) {
@@ -409,9 +409,6 @@ export function useNERModel() {
           for (const pos of positions) {
             const rangeKey = `${pos.start}-${pos.end}`;
             existingRanges.add(rangeKey);
-            const conf = typeof entity.confidence === 'number'
-              ? Math.max(0, Math.min(1, entity.confidence))
-              : undefined;
             allEntities.push({
               id: createEntityId(),
               text: entity.text,
@@ -420,7 +417,7 @@ export function useNERModel() {
               start: pos.start,
               end: pos.end,
               accepted: true,
-              confidence: conf,
+              confidence: pos.matchType === 'exact' ? 0.95 : 0.8,
             });
           }
         }
