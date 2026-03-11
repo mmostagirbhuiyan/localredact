@@ -98,7 +98,7 @@ For PDFs where text extraction fails (scanned docs, letter-spacing artifacts, im
 ## Phase 4: UX Polish
 
 ### 4.1 Review Interface
-- [ ] Side-by-side before/after preview (original page vs redacted page)
+- [x] Side-by-side before/after preview (original text vs redacted text toggle)
 - [ ] Entity review panel: accept/reject/edit per entity with confidence scores
 - [x] Category toggles: redact all PERSON, keep all ORGANIZATION, etc.
 - [x] Keyboard shortcuts: Tab/Shift+Tab navigate, Space toggle, Enter accept, Delete reject

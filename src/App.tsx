@@ -95,6 +95,7 @@ const App: React.FC = () => {
 
   const [redactedPdfBytes, setRedactedPdfBytes] = useState<Uint8Array | null>(null);
   const [redacting, setRedacting] = useState(false);
+  const [showSideBySide, setShowSideBySide] = useState(false);
 
   const handleRedact = useCallback(async () => {
     if (!pdf.text) return;
@@ -395,15 +396,67 @@ const App: React.FC = () => {
             />
 
             <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6">
-              <div
-                className="glass-panel rounded-2xl p-6 overflow-auto max-h-[60vh]"
-              >
-                <div
-                  className="text-sm leading-relaxed whitespace-pre-wrap font-mono"
-                  style={{ color: 'var(--ink-primary)' }}
-                >
-                  {redactedText}
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setShowSideBySide(false)}
+                    className="text-xs font-medium px-3 py-1.5 rounded-full transition-colors"
+                    style={{
+                      background: !showSideBySide ? 'var(--accent-primary-soft)' : 'var(--bg-soft)',
+                      color: !showSideBySide ? 'var(--accent-primary)' : 'var(--ink-tertiary)',
+                    }}
+                  >
+                    Redacted
+                  </button>
+                  <button
+                    onClick={() => setShowSideBySide(true)}
+                    className="text-xs font-medium px-3 py-1.5 rounded-full transition-colors"
+                    style={{
+                      background: showSideBySide ? 'var(--accent-primary-soft)' : 'var(--bg-soft)',
+                      color: showSideBySide ? 'var(--accent-primary)' : 'var(--ink-tertiary)',
+                    }}
+                  >
+                    Side by Side
+                  </button>
                 </div>
+
+                {showSideBySide ? (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="glass-panel rounded-2xl p-4 overflow-auto max-h-[60vh]">
+                      <div className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--ink-tertiary)' }}>
+                        Original
+                      </div>
+                      <div
+                        className="text-sm leading-relaxed whitespace-pre-wrap font-mono"
+                        style={{ color: 'var(--ink-primary)' }}
+                      >
+                        {pdf.text}
+                      </div>
+                    </div>
+                    <div className="glass-panel rounded-2xl p-4 overflow-auto max-h-[60vh]">
+                      <div className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: 'var(--ink-tertiary)' }}>
+                        Redacted
+                      </div>
+                      <div
+                        className="text-sm leading-relaxed whitespace-pre-wrap font-mono"
+                        style={{ color: 'var(--ink-primary)' }}
+                      >
+                        {redactedText}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div
+                    className="glass-panel rounded-2xl p-6 overflow-auto max-h-[60vh]"
+                  >
+                    <div
+                      className="text-sm leading-relaxed whitespace-pre-wrap font-mono"
+                      style={{ color: 'var(--ink-primary)' }}
+                    >
+                      {redactedText}
+                    </div>
+                  </div>
+                )}
               </div>
 
               <RedactControls
