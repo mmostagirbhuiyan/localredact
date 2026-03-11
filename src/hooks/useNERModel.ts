@@ -69,6 +69,12 @@ function mapLLMType(type: string): EntityCategory | null {
     case 'USERNAME': return 'PERSON';
     case 'PASSWORD': return 'SSN';
     case 'ID_NUMBER': return 'SSN';
+    case 'SSN': return 'SSN';
+    case 'CREDIT_CARD': return 'CREDIT_CARD';
+    case 'EMAIL': return 'EMAIL';
+    case 'EMAIL_ADDRESS': return 'EMAIL';
+    case 'PHONE': return 'PHONE';
+    case 'PHONE_NUMBER': return 'PHONE';
     default: return null;
   }
 }
