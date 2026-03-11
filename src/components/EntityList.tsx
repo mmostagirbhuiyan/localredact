@@ -19,6 +19,7 @@ interface EntityGroup {
   allAccepted: boolean;
   noneAccepted: boolean;
   firstId: string;
+  confidence?: number;
 }
 
 export const EntityList: React.FC<EntityListProps> = ({ entities, onToggle, onToggleGroup, onScrollTo, onToggleCategory, onEditText, focusedEntityId }) => {
@@ -73,6 +74,11 @@ export const EntityList: React.FC<EntityListProps> = ({ entities, onToggle, onTo
             existing.ids.push(entity.id);
             existing.allAccepted = existing.allAccepted && entity.accepted;
             existing.noneAccepted = existing.noneAccepted && !entity.accepted;
+            if (entity.confidence !== undefined) {
+              existing.confidence = existing.confidence !== undefined
+                ? Math.min(existing.confidence, entity.confidence)
+                : entity.confidence;
+            }
           } else {
             const group: EntityGroup = {
               text: entity.text,
@@ -81,6 +87,7 @@ export const EntityList: React.FC<EntityListProps> = ({ entities, onToggle, onTo
               allAccepted: entity.accepted,
               noneAccepted: !entity.accepted,
               firstId: entity.id,
+              confidence: entity.confidence,
             };
             seen.set(key, group);
             deduped.push(group);
@@ -179,6 +186,26 @@ export const EntityList: React.FC<EntityListProps> = ({ entities, onToggle, onTo
                     )}
 
                     <div className="flex items-center gap-1 shrink-0">
+                      {group.confidence !== undefined && (
+                        <span
+                          className="text-xs px-1.5 py-0.5 rounded-full"
+                          style={{
+                            background: group.confidence >= 0.8
+                              ? 'var(--success-soft, rgba(34,197,94,0.1))'
+                              : group.confidence >= 0.5
+                                ? 'rgba(234,179,8,0.1)'
+                                : 'rgba(239,68,68,0.1)',
+                            color: group.confidence >= 0.8
+                              ? 'var(--success, #22c55e)'
+                              : group.confidence >= 0.5
+                                ? '#ca8a04'
+                                : 'var(--danger, #ef4444)',
+                          }}
+                          title={`Confidence: ${Math.round(group.confidence * 100)}%`}
+                        >
+                          {Math.round(group.confidence * 100)}%
+                        </span>
+                      )}
                       {group.ids.length > 1 && (
                         <span
                           className="text-xs px-1.5 py-0.5 rounded-full"

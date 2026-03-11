@@ -18,6 +18,7 @@ export interface DetectedEntity {
   start: number;
   end: number;
   accepted: boolean;
+  confidence?: number; // 0-1, regex=1.0, LLM=model-reported
 }
 
 export const ENTITY_CONFIG: Record<EntityCategory, { label: string; colorVar: string; softVar: string }> = {

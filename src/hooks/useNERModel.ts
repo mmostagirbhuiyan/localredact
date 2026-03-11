@@ -39,6 +39,7 @@ interface NERModelState {
 interface PIIEntity {
   type: string;
   text: string;
+  confidence?: number;
 }
 
 export const MODEL_ID = 'Qwen3-4B-q4f16_1-MLC';
@@ -402,6 +403,9 @@ export function useNERModel() {
           for (const pos of positions) {
             const rangeKey = `${pos.start}-${pos.end}`;
             existingRanges.add(rangeKey);
+            const conf = typeof entity.confidence === 'number'
+              ? Math.max(0, Math.min(1, entity.confidence))
+              : undefined;
             allEntities.push({
               id: createEntityId(),
               text: entity.text,
@@ -410,6 +414,7 @@ export function useNERModel() {
               start: pos.start,
               end: pos.end,
               accepted: true,
+              confidence: conf,
             });
           }
         }

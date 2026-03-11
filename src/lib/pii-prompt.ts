@@ -1,7 +1,9 @@
 export const PII_SYSTEM_PROMPT = `/no_think
 You are a PII extraction tool. You ONLY output a JSON array. No explanation. No thinking.
 
-Each item: {"type":"TYPE","text":"EXACT text from input"}
+Each item: {"type":"TYPE","text":"EXACT text from input","confidence":0.95}
+
+confidence: 0.0-1.0 how certain this is real PII (1.0=definitely PII, 0.5=uncertain)
 
 Types:
 PERSON - full names, first+last names. Check near "customer", "name", "account holder", "member", "patient"
@@ -15,7 +17,7 @@ Rules:
 2. Do NOT invent entities. Only extract what literally appears in the text
 3. Extract ALL occurrences, not just the first
 4. Pay attention to labeled fields: "Name:", "Account #:", "Address:", "Customer:", "Member:"
-5. Output ONLY a JSON array. Example: [{"type":"PERSON","text":"John Smith"},{"type":"ADDRESS","text":"123 Main St, City, ST 12345"}]
+5. Output ONLY a JSON array. Example: [{"type":"PERSON","text":"John Smith","confidence":0.95},{"type":"ADDRESS","text":"123 Main St, City, ST 12345","confidence":0.9}]
 6. If nothing found, output: []`;
 
 export function buildPIIUserPrompt(text: string): string {

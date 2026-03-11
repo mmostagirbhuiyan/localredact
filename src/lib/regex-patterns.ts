@@ -72,6 +72,7 @@ export function detectWithRegex(text: string): DetectedEntity[] {
         start: match.index,
         end: match.index + match[0].length,
         accepted: true,
+        confidence: 1.0,
       });
       match = pattern.exec(text);
     }
