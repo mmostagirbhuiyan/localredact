@@ -95,6 +95,7 @@ const App: React.FC = () => {
 
   const [redactedPdfBytes, setRedactedPdfBytes] = useState<Uint8Array | null>(null);
   const [redacting, setRedacting] = useState(false);
+  const [redactProgress, setRedactProgress] = useState('');
   const [showSideBySide, setShowSideBySide] = useState(false);
 
   const handleRedact = useCallback(async () => {
@@ -104,8 +105,11 @@ const App: React.FC = () => {
       const pdfDoc = pdf.getPDFDocument();
       if (!pdfDoc) return;
       setRedacting(true);
+      setRedactProgress('Preparing...');
       try {
-        const bytes = await createRedactedPDF(pdfDoc, entities, pdf.pages);
+        const bytes = await createRedactedPDF(pdfDoc, entities, pdf.pages, (current, total) => {
+          setRedactProgress(`Rendering page ${current}/${total}...`);
+        });
         setRedactedPdfBytes(bytes);
         // Also produce text version for preview
         const result = redactText(pdf.text, entities, redactStyle);
@@ -365,6 +369,7 @@ const App: React.FC = () => {
                 onDownload={handleDownload}
                 redacted={false}
                 redacting={redacting}
+                redactProgress={redactProgress}
                 isPDF={pdf.isPDF}
               />
               {entities.length > 0 && (

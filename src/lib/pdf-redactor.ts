@@ -36,15 +36,43 @@ function findTextItemBounds(
 ): BoundingBox[] {
   const boxes: BoundingBox[] = [];
 
-  // Build a mapping of concatenated text positions to text items
-  // This lets us find which text items contain our entity text
+  // Build a mapping of concatenated text positions to text items.
+  // Must mirror the spacing logic from extractPageText() so entity text
+  // found in the formatted text can be located in the raw items.
   let concat = '';
   const itemRanges: { item: TextItem; start: number; end: number }[] = [];
 
+  let prevItem: TextItem | null = null;
   for (const item of textItems) {
+    // Insert synthetic spaces/newlines matching extractPageText logic
+    if (prevItem) {
+      const prevX = prevItem.transform[4];
+      const prevY = prevItem.transform[5];
+      const curX = item.transform[4];
+      const curY = item.transform[5];
+      const lineHeight = Math.abs(prevItem.transform[3]) || 12;
+
+      if (Math.abs(curY - prevY) > lineHeight * 0.5) {
+        if (!concat.endsWith('\n')) concat += '\n';
+      } else {
+        const prevEnd = prevX + prevItem.width;
+        const gap = curX - prevEnd;
+        const avgCharWidth = prevItem.str.length > 0
+          ? prevItem.width / prevItem.str.length
+          : lineHeight * 0.5;
+        if (gap > avgCharWidth * 1.5 && !prevItem.str.endsWith(' ') && !item.str.startsWith(' ')) {
+          concat += ' ';
+        }
+      }
+    }
+
     const start = concat.length;
     concat += item.str;
     itemRanges.push({ item, start, end: concat.length });
+    if (item.hasEOL) {
+      concat += '\n';
+    }
+    prevItem = item;
   }
 
   // Find all occurrences of entity text in concatenated items

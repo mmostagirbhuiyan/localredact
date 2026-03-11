@@ -13,6 +13,7 @@ interface RedactControlsProps {
   onDownload: () => void;
   redacted: boolean;
   redacting?: boolean;
+  redactProgress?: string;
   isPDF?: boolean;
 }
 
@@ -27,6 +28,7 @@ export const RedactControls: React.FC<RedactControlsProps> = ({
   onDownload,
   redacted,
   redacting = false,
+  redactProgress = '',
   isPDF = false,
 }) => {
   return (
@@ -98,7 +100,7 @@ export const RedactControls: React.FC<RedactControlsProps> = ({
           {redacting ? (
             <>
               <Loader2 size={16} className="animate-spin" />
-              Redacting PDF...
+              {redactProgress || 'Redacting PDF...'}
             </>
           ) : (
             <>
