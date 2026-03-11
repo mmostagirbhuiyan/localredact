@@ -113,7 +113,7 @@ Done:
 
 Todo:
 - [x] Redaction report (what was found/redacted, entity counts by category)
-- [ ] Side-by-side before/after comparison view
+- [x] Side-by-side before/after comparison view
 
 ### 4.3 Batch Processing
 - [ ] Multi-file drag-and-drop

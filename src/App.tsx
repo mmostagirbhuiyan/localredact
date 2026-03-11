@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { Shield, Loader2 } from 'lucide-react';
+import { Shield, Loader2, Columns2, FileText } from 'lucide-react';
 import { DropZone } from './components/DropZone';
 import { DocumentViewer } from './components/DocumentViewer';
 import { PDFPageViewer } from './components/PDFPageViewer';
@@ -23,6 +23,7 @@ const App: React.FC = () => {
   const [entities, setEntities] = useState<DetectedEntity[]>([]);
   const [redactStyle, setRedactStyle] = useState<RedactStyle>('text');
   const [redactedText, setRedactedText] = useState<string | null>(null);
+  const [showComparison, setShowComparison] = useState(false);
 
   const pdf = usePDFParser();
   const ner = useNERModel();
@@ -483,23 +484,94 @@ const App: React.FC = () => {
 
             <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6">
               {pdf.isPDF && pdf.getPDFDocument() ? (
-                <PDFPageViewer
-                  pdfDoc={pdf.getPDFDocument()!}
-                  pages={pdf.pages}
-                  entities={entities}
-                  mode="redacted"
-                  onEntityClick={handleToggleEntity}
-                />
-              ) : (
-                <div
-                  className="glass-panel rounded-2xl p-6 overflow-auto max-h-[60vh]"
-                >
-                  <div
-                    className="text-sm leading-relaxed whitespace-pre-wrap font-mono"
-                    style={{ color: 'var(--ink-primary)' }}
-                  >
-                    {redactedText}
+                <div className="space-y-2">
+                  <div className="flex justify-end">
+                    <button
+                      onClick={() => setShowComparison((v) => !v)}
+                      className="btn-secondary text-xs h-8 px-3"
+                      title={showComparison ? 'Show redacted only' : 'Compare before/after'}
+                    >
+                      {showComparison ? <FileText size={14} /> : <Columns2 size={14} />}
+                      {showComparison ? 'Redacted Only' : 'Compare'}
+                    </button>
                   </div>
+                  {showComparison ? (
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <span className="text-xs font-medium" style={{ color: 'var(--ink-tertiary)' }}>Original</span>
+                        <PDFPageViewer
+                          pdfDoc={pdf.getPDFDocument()!}
+                          pages={pdf.pages}
+                          entities={entities}
+                          mode="review"
+                          onEntityClick={handleToggleEntity}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <span className="text-xs font-medium" style={{ color: 'var(--ink-tertiary)' }}>Redacted</span>
+                        <PDFPageViewer
+                          pdfDoc={pdf.getPDFDocument()!}
+                          pages={pdf.pages}
+                          entities={entities}
+                          mode="redacted"
+                          onEntityClick={handleToggleEntity}
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <PDFPageViewer
+                      pdfDoc={pdf.getPDFDocument()!}
+                      pages={pdf.pages}
+                      entities={entities}
+                      mode="redacted"
+                      onEntityClick={handleToggleEntity}
+                    />
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="flex justify-end">
+                    <button
+                      onClick={() => setShowComparison((v) => !v)}
+                      className="btn-secondary text-xs h-8 px-3"
+                      title={showComparison ? 'Show redacted only' : 'Compare before/after'}
+                    >
+                      {showComparison ? <FileText size={14} /> : <Columns2 size={14} />}
+                      {showComparison ? 'Redacted Only' : 'Compare'}
+                    </button>
+                  </div>
+                  {showComparison ? (
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <span className="text-xs font-medium" style={{ color: 'var(--ink-tertiary)' }}>Original</span>
+                        <DocumentViewer
+                          text={pdf.text || ''}
+                          entities={entities}
+                          onEntityClick={handleToggleEntity}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <span className="text-xs font-medium" style={{ color: 'var(--ink-tertiary)' }}>Redacted</span>
+                        <div className="glass-panel rounded-2xl p-6 overflow-auto max-h-[60vh]">
+                          <div
+                            className="text-sm leading-relaxed whitespace-pre-wrap font-mono"
+                            style={{ color: 'var(--ink-primary)' }}
+                          >
+                            {redactedText}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="glass-panel rounded-2xl p-6 overflow-auto max-h-[60vh]">
+                      <div
+                        className="text-sm leading-relaxed whitespace-pre-wrap font-mono"
+                        style={{ color: 'var(--ink-primary)' }}
+                      >
+                        {redactedText}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
