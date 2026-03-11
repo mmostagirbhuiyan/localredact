@@ -64,13 +64,28 @@ function findTextItemBounds(
       const itemX = item.transform[4];
       const itemY = item.transform[5];
 
-      // Calculate partial coverage if entity only covers part of this item
       const overlapStart = Math.max(0, idx - range.start);
       const overlapEnd = Math.min(item.str.length, entityEnd - range.start);
-      const charWidth = item.str.length > 0 ? item.width / item.str.length : fontSize * 0.6;
+      const coversFullItem = overlapStart === 0 && overlapEnd === item.str.length;
 
-      const boxX = itemX + overlapStart * charWidth;
-      const boxWidth = (overlapEnd - overlapStart) * charWidth;
+      let boxX: number;
+      let boxWidth: number;
+
+      if (coversFullItem) {
+        // Use exact item bounds — no character width estimation needed
+        boxX = itemX;
+        boxWidth = item.width;
+      } else {
+        // Partial coverage: estimate with average char width + padding
+        const charWidth = item.str.length > 0 ? item.width / item.str.length : fontSize * 0.6;
+        boxX = itemX + overlapStart * charWidth;
+        boxWidth = (overlapEnd - overlapStart) * charWidth;
+      }
+
+      // Add horizontal padding to ensure full coverage with proportional fonts
+      const hPad = fontSize * 0.1;
+      boxX -= hPad;
+      boxWidth += hPad * 2;
 
       // Flip Y: PDF origin is bottom-left, canvas is top-left
       const boxY = pageHeight - itemY - fontSize;
@@ -80,14 +95,46 @@ function findTextItemBounds(
         x: boxX,
         y: boxY,
         width: boxWidth,
-        height: fontSize * 1.3, // slight padding for descenders
+        height: fontSize * 1.4, // padding for ascenders/descenders
       });
     }
 
     searchFrom = idx + 1;
   }
 
-  return boxes;
+  // Merge overlapping/adjacent boxes on the same line
+  return mergeBoxes(boxes);
+}
+
+/**
+ * Merge overlapping or adjacent bounding boxes on the same line.
+ */
+function mergeBoxes(boxes: BoundingBox[]): BoundingBox[] {
+  if (boxes.length <= 1) return boxes;
+
+  // Sort by Y then X
+  const sorted = [...boxes].sort((a, b) => a.y - b.y || a.x - b.x);
+  const merged: BoundingBox[] = [sorted[0]];
+
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = merged[merged.length - 1];
+    const curr = sorted[i];
+
+    // Same line (Y within threshold) and overlapping/adjacent horizontally
+    const sameLine = Math.abs(curr.y - prev.y) < prev.height * 0.5;
+    const overlaps = curr.x <= prev.x + prev.width + 2; // 2pt tolerance
+
+    if (sameLine && overlaps) {
+      const newEnd = Math.max(prev.x + prev.width, curr.x + curr.width);
+      prev.x = Math.min(prev.x, curr.x);
+      prev.width = newEnd - prev.x;
+      prev.height = Math.max(prev.height, curr.height);
+    } else {
+      merged.push(curr);
+    }
+  }
+
+  return merged;
 }
 
 /**
