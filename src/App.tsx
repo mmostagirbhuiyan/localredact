@@ -394,45 +394,104 @@ const App: React.FC = () => {
               </span>
             </div>
             <div className="space-y-1.5">
-              {fileQueue.map((item, i) => (
-                <div
-                  key={i}
-                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs"
-                  style={{
-                    background: item.status === 'active' ? 'var(--accent-primary-soft)' : 'var(--bg-base)',
-                    border: item.status === 'active' ? '1px solid var(--accent-primary)' : '1px solid var(--border-subtle)',
-                  }}
-                >
-                  {item.status === 'done' && <Check size={12} style={{ color: 'var(--accent-primary)' }} />}
-                  {item.status === 'active' && <ChevronRight size={12} style={{ color: 'var(--accent-primary)' }} />}
-                  {item.status === 'skipped' && <SkipForward size={12} style={{ color: 'var(--ink-faint)' }} />}
-                  {item.status === 'pending' && <div className="w-3 h-3 rounded-full" style={{ border: '1px solid var(--border-default)' }} />}
-                  <span
-                    className="flex-1 truncate"
-                    style={{ color: item.status === 'done' || item.status === 'skipped' ? 'var(--ink-faint)' : 'var(--ink-secondary)' }}
-                  >
-                    {item.file.name}
-                  </span>
-                  {item.status === 'done' && item.entityCount !== undefined && (
-                    <span className="text-xs" style={{ color: 'var(--ink-faint)' }}>
-                      {item.entityCount} redacted
-                    </span>
-                  )}
-                  {item.status === 'skipped' && (
-                    <span className="text-xs" style={{ color: 'var(--ink-faint)' }}>skipped</span>
-                  )}
-                  {item.status === 'done' && item.redactedBytes && (
-                    <button
-                      onClick={() => handleDownloadQueueItem(i)}
-                      className="flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors"
-                      style={{ color: 'var(--accent-primary)', background: 'var(--accent-primary-soft)' }}
+              {fileQueue.map((item, i) => {
+                // Compute per-file progress for active item
+                const isActive = item.status === 'active';
+                let activePhase = '';
+                let activePercent = 0;
+                if (isActive) {
+                  if (pdf.loading) {
+                    activePhase = 'Parsing...';
+                    activePercent = 10;
+                  } else if (appState === 'scanning') {
+                    activePhase = 'Detecting...';
+                    activePercent = 20;
+                  } else if (ner.loading) {
+                    activePhase = `Loading AI model ${ner.progress}%`;
+                    activePercent = 20 + Math.round(ner.progress * 0.3);
+                  } else if (ner.inferenceProgress) {
+                    const chunkPct = ner.inferenceProgress.current / ner.inferenceProgress.total;
+                    activePhase = `AI scanning chunk ${ner.inferenceProgress.current}/${ner.inferenceProgress.total}`;
+                    activePercent = 50 + Math.round(chunkPct * 30);
+                  } else if (redacting) {
+                    activePhase = redactProgress || 'Redacting...';
+                    activePercent = 85;
+                  } else if (appState === 'review') {
+                    activePhase = `${entities.length} entities found — reviewing`;
+                    activePercent = 80;
+                  } else if (appState === 'redacted') {
+                    activePhase = 'Redacted — ready to download';
+                    activePercent = 100;
+                  }
+                }
+
+                return (
+                  <div key={i}>
+                    <div
+                      className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs"
+                      style={{
+                        background: isActive ? 'var(--accent-primary-soft)' : 'var(--bg-base)',
+                        border: isActive ? '1px solid var(--accent-primary)' : '1px solid var(--border-subtle)',
+                        borderRadius: isActive && activePhase ? '8px 8px 0 0' : undefined,
+                      }}
                     >
-                      <Download size={10} />
-                      Download
-                    </button>
-                  )}
-                </div>
-              ))}
+                      {item.status === 'done' && <Check size={12} style={{ color: 'var(--accent-primary)' }} />}
+                      {isActive && <Loader2 size={12} className={appState === 'redacted' ? '' : 'animate-spin'} style={{ color: 'var(--accent-primary)' }} />}
+                      {item.status === 'skipped' && <SkipForward size={12} style={{ color: 'var(--ink-faint)' }} />}
+                      {item.status === 'pending' && <div className="w-3 h-3 rounded-full" style={{ border: '1px solid var(--border-default)' }} />}
+                      <span
+                        className="flex-1 truncate"
+                        style={{ color: item.status === 'done' || item.status === 'skipped' ? 'var(--ink-faint)' : 'var(--ink-secondary)' }}
+                      >
+                        {item.file.name}
+                      </span>
+                      {item.status === 'done' && item.entityCount !== undefined && (
+                        <span className="text-xs" style={{ color: 'var(--ink-faint)' }}>
+                          {item.entityCount} redacted
+                        </span>
+                      )}
+                      {item.status === 'skipped' && (
+                        <span className="text-xs" style={{ color: 'var(--ink-faint)' }}>skipped</span>
+                      )}
+                      {item.status === 'done' && item.redactedBytes && (
+                        <button
+                          onClick={() => handleDownloadQueueItem(i)}
+                          className="flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors"
+                          style={{ color: 'var(--accent-primary)', background: 'var(--accent-primary-soft)' }}
+                        >
+                          <Download size={10} />
+                          Download
+                        </button>
+                      )}
+                    </div>
+                    {/* Per-file progress bar for active item */}
+                    {isActive && activePhase && (
+                      <div
+                        className="px-3 pb-2 pt-1 rounded-b-lg"
+                        style={{
+                          background: 'var(--accent-primary-soft)',
+                          borderLeft: '1px solid var(--accent-primary)',
+                          borderRight: '1px solid var(--accent-primary)',
+                          borderBottom: '1px solid var(--accent-primary)',
+                        }}
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs" style={{ color: 'var(--ink-tertiary)' }}>{activePhase}</span>
+                        </div>
+                        <div
+                          className="h-1 rounded-full overflow-hidden"
+                          style={{ background: 'var(--bg-elevated)' }}
+                        >
+                          <div
+                            className="h-full rounded-full transition-all duration-500"
+                            style={{ width: `${activePercent}%`, background: 'var(--accent-primary)' }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
             {/* Progress bar */}
             <div
