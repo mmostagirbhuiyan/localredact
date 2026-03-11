@@ -254,7 +254,7 @@ const App: React.FC = () => {
                       Loading AI Detection Model
                     </h3>
                     <p className="text-xs mb-4" style={{ color: 'var(--ink-tertiary)' }}>
-                      Downloading and initializing (~500MB)
+                      Downloading and initializing (~830MB)
                     </p>
 
                     <div className="max-w-xs mx-auto">

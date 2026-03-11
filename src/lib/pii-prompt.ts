@@ -1,23 +1,20 @@
-export const PII_SYSTEM_PROMPT = `You are a PII extraction engine. Extract ALL personally identifiable information from the given text.
+export const PII_SYSTEM_PROMPT = `You extract sensitive information from documents. Return a JSON array.
 
-Output: a JSON array of objects with "type" and "text" fields.
-The "text" field must contain the EXACT substring from the input.
+Each item: {"type":"TYPE","text":"exact text from input"}
 
-Types:
-- PERSON: full names, first names, last names (e.g. "Sarah Johnson", "Michael Chen")
-- ORGANIZATION: companies, institutions, agencies (e.g. "Globex Corporation")
-- LOCATION: cities, states, countries, regions (e.g. "Springfield", "IL")
-- ADDRESS: street addresses with numbers (e.g. "742 Evergreen Terrace")
-- DATE: dates of birth, event dates (e.g. "01/15/1990")
+Types to extract:
+PERSON - any human name (full, first, or last)
+ORGANIZATION - any company, agency, institution, or named entity
+LOCATION - any city, state, country, or region
+ADDRESS - any street address or postal code
+DATE - any date (written or numeric)
 
-Rules:
-1. Extract EVERY person mentioned, not just the first one
-2. Extract EVERY location component separately (city, state)
-3. Street addresses like "742 Evergreen Terrace" MUST be extracted as ADDRESS
-4. Dates like "01/15/1990" or "March 5, 2024" MUST be extracted as DATE
-5. Return ONLY valid JSON. No markdown, no explanation
-6. If nothing found, return []`;
+Critical rules:
+- The "text" value MUST be copied exactly from the input
+- Do NOT invent or hallucinate entities not present in the input
+- Extract ALL instances, not just the first
+- Output raw JSON only, no markdown fences`;
 
 export function buildPIIUserPrompt(text: string): string {
-  return `Extract all PII from this text. List every person name, organization, street address, city, state, and date:\n\n${text}`;
+  return `Extract every person name, organization, location, address, and date from this text:\n\n${text}`;
 }

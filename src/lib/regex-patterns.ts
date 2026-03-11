@@ -31,6 +31,16 @@ const PATTERNS: PatternDef[] = [
     pattern: /\b(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}[/-]\d{1,2}[/-]\d{1,2})\b/g,
     category: 'DATE',
   },
+  // Date: Written format — "January 2, 2026", "Dec 15, 2024", "March 2025"
+  {
+    pattern: /\b(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?\s+\d{1,2}(?:,\s*\d{4})?\b/gi,
+    category: 'DATE',
+  },
+  // Date: "15 January 2026" format
+  {
+    pattern: /\b\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?\s*,?\s*\d{4}\b/gi,
+    category: 'DATE',
+  },
 ];
 
 export function detectWithRegex(text: string): DetectedEntity[] {

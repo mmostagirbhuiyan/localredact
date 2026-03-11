@@ -41,7 +41,7 @@ interface PIIEntity {
   text: string;
 }
 
-export const MODEL_ID = 'Qwen2.5-1.5B-Instruct-q4f16_1-MLC';
+export const MODEL_ID = 'gemma-2-2b-it-q4f16_1-MLC';
 
 function checkWebGPUSupport(): boolean {
   if (typeof navigator === 'undefined') return false;
@@ -87,7 +87,10 @@ function parseLLMResponse(response: string): PIIEntity[] {
   const arrEnd = cleaned.lastIndexOf(']');
   if (arrStart === -1 || arrEnd === -1 || arrEnd <= arrStart) return [];
 
-  const jsonStr = cleaned.slice(arrStart, arrEnd + 1);
+  let jsonStr = cleaned.slice(arrStart, arrEnd + 1);
+
+  // Fix trailing commas before ] (common LLM output quirk)
+  jsonStr = jsonStr.replace(/,\s*]/g, ']');
 
   try {
     const parsed = JSON.parse(jsonStr);
