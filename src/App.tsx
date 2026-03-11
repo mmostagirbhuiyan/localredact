@@ -92,6 +92,13 @@ const App: React.FC = () => {
     setEntities((prev) => prev.map((e) => ({ ...e, accepted: false })));
   }, []);
 
+  const handleToggleGroup = useCallback((ids: string[], accepted: boolean) => {
+    const idSet = new Set(ids);
+    setEntities((prev) =>
+      prev.map((e) => (idSet.has(e.id) ? { ...e, accepted } : e)),
+    );
+  }, []);
+
   const handleToggleCategory = useCallback((category: string, accepted: boolean) => {
     setEntities((prev) =>
       prev.map((e) => (e.category === category ? { ...e, accepted } : e)),
@@ -435,6 +442,7 @@ const App: React.FC = () => {
               <EntityList
                 entities={entities}
                 onToggle={handleToggleEntity}
+                onToggleGroup={handleToggleGroup}
                 onScrollTo={handleToggleEntity}
                 onToggleCategory={handleToggleCategory}
                 focusedEntityId={focusedEntityId}

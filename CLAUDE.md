@@ -91,35 +91,26 @@ Fonts: Space Grotesk (headings), Outfit (body). Dark-first, light mode supported
 - gemma-2-2b-it for PII — returns empty `text` values on dense/tabular content (utility bills). Too small for reliable structured extraction. Replaced by Qwen3-4B.
 
 ## Session State
-Last Updated: 2026-03-10 | Session 6
-Current Status: Full pipeline working end-to-end. Qwen3-4B finds all PII (names, orgs, addresses, account numbers).
-PDF flow: upload → render pages in viewer → detect PII (regex instant + LLM) → colored overlay boxes → accept/reject → black boxes → download.
-Text flow: paste → highlight text → detect → redact text → download.
-Model: Qwen3-4B-q4f16_1-MLC (~2.5GB, cached after first load). Temperature 0 for deterministic output.
-Components: PDFPageViewer (multi-page, zoom, lazy) + PDFPageCanvas (per-page canvas + overlay divs).
-Next: Test with real PDFs (PSEG bill etc.), then Phase 3 (SmolVLM vision fallback).
+Last Updated: 2026-03-10 | Session 7
+Current Status: Full pipeline tested on real PDFs (PSEG utility bill). 51 entities detected consistently — names, addresses, account numbers, orgs, phones, dates. Zero false negatives on critical PII.
+PDF flow: upload → render pages → regex (instant) → LLM (chunked, progress bar) → colored overlays → accept/reject → black boxes → download.
+Text flow: paste → highlight → detect → redact → download.
+Model: Qwen3-4B-q4f16_1-MLC (~2.5GB, cached). Temp 0, max_tokens 1024, /no_think.
+Known issues: LLM non-deterministic on chunk count (sometimes finds more ORG duplicates). Chunk 4-5 can be slow on dense text (model thinking despite /no_think).
+Next: Phase 3 (SmolVLM vision fallback for scanned PDFs), further UX polish.
 
 ## Archived Sessions
-### Session 2 (2026-03-10)
-NER subword merging fixed (6987cf3). PDF text extraction improved. v2 roadmap created.
-### Session 3 (2026-03-10)
-Tested Piiranha v1 — failed badly (no B- tags, missed names, label flipping). Pivoted to WebLLM approach.
-Updated ROADMAP.md: Phase 1 now uses WebLLM + Llama 3.2 instead of token classifiers.
-### Session 4 (2026-03-10)
-Phase 1 complete: WebLLM + gemma-2-2b-it default, AI transparency panel, prompt anti-hallucination.
-Phase 2.1-2.2 complete: render-to-image pipeline, coordinate mapping, box merging.
-Fixed: JSON trailing commas, chat history bleed, hallucinated entities from example prompt.
-Added written date regex patterns. Model table: gemma-2-2b active, Qwen tested, Llama rejected.
-### Session 5 (2026-03-10)
-In-place PDF redaction: PDFPageViewer + PDFPageCanvas render actual PDF pages with entity overlays.
-Review mode: colored semi-transparent boxes per category. Redacted mode: solid black boxes.
-Category toggles, keyboard shortcuts (Tab/Space/Enter/Delete), metadata sanitization complete.
-Fixed text matching in pdf-redactor (mirrors extractPageText spacing for proper item lookup).
+### Sessions 2-5 (2026-03-10)
+Built core pipeline: regex detection, WebLLM integration, render-to-image PDF redaction,
+in-place PDF viewer with entity overlays, keyboard shortcuts, metadata sanitization.
+Rejected: bert-base-NER, Piiranha v1, token classification, Llama 3.2 (safety refusal).
 ### Session 6 (2026-03-10)
-LLM pipeline overhaul: switched gemma-2-2b → Qwen3-4B (much better at structured extraction).
-Fixed critical bug: NER detection only fired once per session (useEffect dep on ner.ready only).
-Fixed entity text matching: fuzzy whitespace matching so LLM entities found despite PDF spacing diffs.
-Added `<think>` block stripping for Qwen3. ACCOUNT_NUMBER entity type. Chunk overlap (200 chars).
-Improved prompt: explicit field label guidance, /no_think, deterministic (temp=0).
-Error logging: failures surfaced to console instead of silently swallowed.
-Verified end-to-end: 10/10 entities detected on test text (names, org, addresses, account#, SSN, phone, date).
+LLM overhaul: gemma-2-2b → Qwen3-4B. Fixed NER re-trigger bug, fuzzy text matching,
+`<think>` stripping, ACCOUNT_NUMBER type, chunk overlap. Verified on test text.
+### Session 7 (2026-03-10)
+Tested on real PSEG utility bill PDF. Found and fixed critical Start Over race condition:
+concurrent detect() calls corrupted WebLLM engine state (GPUBuffer unmapped, tokenizer deleted).
+Fix: abort controller + detecting mutex + engine reuse on reload. Added LLM inference progress
+bar ("AI scanning text — Chunk X of Y"). DevViewer now has clickable chunk navigation.
+Reduced max_tokens 2048→1024 for faster inference. EntityList now collapses duplicate
+text+category into grouped rows with count badges and group toggle.

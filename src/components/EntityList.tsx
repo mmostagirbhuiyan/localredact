@@ -5,12 +5,23 @@ import { DetectedEntity, ENTITY_CONFIG } from '../lib/entity-types';
 interface EntityListProps {
   entities: DetectedEntity[];
   onToggle: (id: string) => void;
+  onToggleGroup?: (ids: string[], accepted: boolean) => void;
   onScrollTo: (id: string) => void;
   onToggleCategory?: (category: string, accepted: boolean) => void;
   focusedEntityId?: string | null;
 }
 
-export const EntityList: React.FC<EntityListProps> = ({ entities, onToggle, onScrollTo, onToggleCategory, focusedEntityId }) => {
+interface EntityGroup {
+  text: string;
+  category: string;
+  ids: string[];
+  allAccepted: boolean;
+  noneAccepted: boolean;
+  firstId: string;
+}
+
+export const EntityList: React.FC<EntityListProps> = ({ entities, onToggle, onToggleGroup, onScrollTo, onToggleCategory, focusedEntityId }) => {
+  // Group by category first, then collapse duplicates within each category
   const grouped = entities.reduce<Record<string, DetectedEntity[]>>((acc, entity) => {
     const key = entity.category;
     if (!acc[key]) acc[key] = [];
@@ -38,6 +49,35 @@ export const EntityList: React.FC<EntityListProps> = ({ entities, onToggle, onSc
         const config = ENTITY_CONFIG[category as keyof typeof ENTITY_CONFIG];
         const allAccepted = items.every((e) => e.accepted);
         const noneAccepted = items.every((e) => !e.accepted);
+
+        // Collapse duplicate text into groups
+        const deduped: EntityGroup[] = [];
+        const seen = new Map<string, EntityGroup>();
+        for (const entity of items) {
+          const key = entity.text.toLowerCase().trim();
+          const existing = seen.get(key);
+          if (existing) {
+            existing.ids.push(entity.id);
+            existing.allAccepted = existing.allAccepted && entity.accepted;
+            existing.noneAccepted = existing.noneAccepted && !entity.accepted;
+          } else {
+            const group: EntityGroup = {
+              text: entity.text,
+              category: entity.category,
+              ids: [entity.id],
+              allAccepted: entity.accepted,
+              noneAccepted: !entity.accepted,
+              firstId: entity.id,
+            };
+            seen.set(key, group);
+            deduped.push(group);
+          }
+        }
+
+        // Unique count for the category header
+        const uniqueCount = deduped.length;
+        const totalCount = items.length;
+
         return (
           <div key={category} className="mb-3">
             <div
@@ -48,7 +88,7 @@ export const EntityList: React.FC<EntityListProps> = ({ entities, onToggle, onSc
                 style={{ background: `var(${config.colorVar})` }}
               />
               <span className="text-xs font-semibold uppercase tracking-wider flex-1" style={{ color: 'var(--ink-tertiary)' }}>
-                {config.label} ({items.length})
+                {config.label} ({uniqueCount !== totalCount ? `${uniqueCount} unique, ${totalCount} total` : totalCount})
               </span>
               {onToggleCategory && (
                 <button
@@ -66,46 +106,63 @@ export const EntityList: React.FC<EntityListProps> = ({ entities, onToggle, onSc
             </div>
 
             <div className="space-y-1">
-              {items.map((entity) => (
-                <div
-                  key={entity.id}
-                  className="flex items-center gap-2 px-2 py-1.5 rounded-lg transition-all duration-150"
-                  style={{
-                    background: entity.accepted ? `var(${config.softVar})` : 'transparent',
-                    opacity: entity.accepted ? 1 : 0.5,
-                    outline: focusedEntityId === entity.id ? `2px solid var(${config.colorVar})` : 'none',
-                    outlineOffset: '-1px',
-                  }}
-                >
-                  <span
-                    className="flex-1 text-xs font-mono truncate"
-                    style={{ color: entity.accepted ? `var(${config.colorVar})` : 'var(--ink-tertiary)' }}
+              {deduped.map((group) => {
+                const isFocused = group.ids.includes(focusedEntityId || '');
+                return (
+                  <div
+                    key={group.firstId}
+                    className="flex items-center gap-2 px-2 py-1.5 rounded-lg transition-all duration-150"
+                    style={{
+                      background: group.allAccepted ? `var(${config.softVar})` : 'transparent',
+                      opacity: group.allAccepted ? 1 : group.noneAccepted ? 0.5 : 0.75,
+                      outline: isFocused ? `2px solid var(${config.colorVar})` : 'none',
+                      outlineOffset: '-1px',
+                    }}
                   >
-                    {entity.text}
-                  </span>
+                    <span
+                      className="flex-1 text-xs font-mono truncate"
+                      style={{ color: group.allAccepted ? `var(${config.colorVar})` : 'var(--ink-tertiary)' }}
+                    >
+                      {group.text}
+                    </span>
 
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => onScrollTo(entity.id)}
-                      className="p-1 rounded hover:opacity-80 transition-opacity"
-                      title="Find in text"
-                    >
-                      <Eye size={12} style={{ color: 'var(--ink-tertiary)' }} />
-                    </button>
-                    <button
-                      onClick={() => onToggle(entity.id)}
-                      className="p-1 rounded transition-opacity"
-                      title={entity.accepted ? 'Reject' : 'Accept'}
-                    >
-                      {entity.accepted ? (
-                        <Check size={12} style={{ color: 'var(--success)' }} />
-                      ) : (
-                        <X size={12} style={{ color: 'var(--danger)' }} />
+                    <div className="flex items-center gap-1">
+                      {group.ids.length > 1 && (
+                        <span
+                          className="text-xs px-1.5 py-0.5 rounded-full"
+                          style={{ background: 'var(--bg-soft)', color: 'var(--ink-faint)' }}
+                        >
+                          {group.ids.length}x
+                        </span>
                       )}
-                    </button>
+                      <button
+                        onClick={() => onScrollTo(group.firstId)}
+                        className="p-1 rounded hover:opacity-80 transition-opacity"
+                        title="Find in text"
+                      >
+                        <Eye size={12} style={{ color: 'var(--ink-tertiary)' }} />
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (group.ids.length > 1 && onToggleGroup) {
+                            onToggleGroup(group.ids, group.noneAccepted || !group.allAccepted);
+                          } else {
+                            onToggle(group.firstId);
+                          }
+                        }}
+                        className="p-1 rounded transition-opacity"
+                        title={group.allAccepted ? 'Reject' : 'Accept'}
+                      >
+                        {group.allAccepted ? (
+                          <Check size={12} style={{ color: 'var(--success)' }} />
+                        ) : (
+                          <X size={12} style={{ color: 'var(--danger)' }} />
+                        )}
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         );

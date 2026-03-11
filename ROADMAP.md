@@ -1,170 +1,156 @@
-# LocalRedact v2 Roadmap: Edge AI Redaction Engine
+# LocalRedact v2 Roadmap
 
-> "EDGE AI on STEROIDS. LOOPED, CONTROLLED. WINNING."
+> Browser-native PII redaction. No cloud. No token limits. WebGPU-accelerated.
 
-## Vision
-FBI-level PDF redaction running entirely on consumer hardware. No cloud. No token limits.
-WebGPU-accelerated LLM for PII detection with multi-pass verification. True content destruction.
+## Status Summary
+
+| Phase | Description | Status |
+|-------|-------------|--------|
+| 1 | Detection Engine (WebLLM + Qwen3-4B) | **COMPLETE** |
+| 2 | True PDF Redaction (render-to-image) | **COMPLETE** |
+| 3 | Vision Model Fallback (SmolVLM) | Not started |
+| 4 | UX Polish | In progress |
 
 ---
 
-## Phase 1: Detection Engine Upgrade (Highest Impact)
+## Phase 1: Detection Engine — COMPLETE
 
-Replace token classifiers (bert-base-NER, Piiranha) with a real LLM via WebLLM.
-Modern laptops have the compute. A 1-3B instruct model understands context, follows instructions,
-and produces structured JSON — no BIO tag gymnastics, no broken subword merging.
+Two-phase pipeline: regex (instant) + WebLLM LLM (lazy-loaded via WebGPU).
 
-### 1.1 WebLLM Integration
-- [x] Add `@mlc-ai/web-llm` dependency
-- [x] Create WebLLM hook — adapted pattern from Meridian project (integrated into useNERModel.ts)
-- [x] WebGPU support detection (navigator.gpu), iOS exclusion, mobile checks
-- [x] Lazy model loading with progress callback (model cached after first load)
-- [x] Model selection: `Qwen2.5-1.5B-Instruct-q4f16_1-MLC` (Llama 3.2 refused PII work)
+### 1.1 WebLLM Integration — DONE
+- [x] `@mlc-ai/web-llm` dependency, WebGPU detection, iOS exclusion
+- [x] Lazy model loading with progress callback (cached after first load)
+- [x] Model: Qwen3-4B-q4f16_1-MLC (~2.5GB, temp 0, max_tokens 1024)
+- [x] Engine lifecycle: abort controller, detecting mutex, engine reuse on Start Over
 
-### 1.2 LLM-Based PII Extraction
-- [x] Create `src/lib/pii-prompt.ts` — system prompt for structured PII extraction
-- [x] Prompt design: input text → JSON array of `{type, text}` entities
-- [x] Low temperature (0.1) for deterministic extraction
-- [x] Chunking strategy: split text into ~1500 char chunks with smart sentence/paragraph breaks
-- [x] JSON response parsing with markdown fence stripping, validation, and fallback
+### 1.2 LLM-Based PII Extraction — DONE
+- [x] `src/lib/pii-prompt.ts` — structured JSON extraction prompt with /no_think
+- [x] Chunking: ~1500 chars with 200-char overlap, smart sentence breaks
+- [x] JSON parsing: markdown fence stripping, `<think>` block removal, trailing comma fix
+- [x] Entity position matching: exact + fuzzy whitespace matching against source text
 
-### 1.3 Two-Phase Detection Pipeline
+### 1.3 Two-Phase Detection Pipeline — DONE
 - [x] Phase 1: Regex sweep (instant) — SSN, CC, email, phone, dates
-- [x] Phase 2: LLM sweep via WebGPU — names, orgs, locations, addresses
-- [x] Deduplicate: if regex already found an entity at [start, end], skip LLM duplicate
-- [x] Merge results into unified entity list with source attribution (regex vs ner)
+- [x] Phase 2: LLM sweep — names, orgs, locations, addresses, account numbers
+- [x] Deduplication across regex and LLM results
+- [x] Source attribution (regex vs ner) on each entity
 
-### 1.4 Replace useNERModel Hook
-- [x] Rewrite `src/hooks/useNERModel.ts` → uses WebLLM instead of Transformers.js token-classification
-- [x] Same public interface: `{ loading, ready, progress, error, loadModel, detect }`
-- [ ] Remove `@huggingface/transformers` dependency (deferred — needed for Phase 3 SmolVLM)
-- [x] Update vite.config.ts chunking: web-llm chunk replaces transformers chunk
+### 1.4 AI Transparency — DONE
+- [x] DevViewer: system prompt, user prompt, raw response, parsed entities
+- [x] Chunk navigation (clickable numbered buttons per chunk)
+- [x] LLM inference progress bar ("AI scanning text — Chunk X of Y")
 
-### 1.5 AI Transparency Panel
-- [x] DevViewer component showing system prompt, user prompt, raw LLM response, parsed entities
-- [x] Collapsible accordion sections, model ID badge, read-only
+### 1.5 Dependency Cleanup
+- [ ] Remove `@huggingface/transformers` (deferred — needed for Phase 3 SmolVLM)
 
 ---
 
-## Phase 2: True PDF Redaction (Render-to-Image Pipeline)
+## Phase 2: True PDF Redaction — COMPLETE
 
-Content destruction, not visual overlay. Same approach as First Look Media's pdf-redact-tools.
+Render-to-image pipeline. Content destruction, not visual overlay.
 
-### 2.1 Render-to-Image Core
-- [x] pdfjs renders each page to Canvas at 216 DPI (3x scale)
-- [x] Map detected PII coordinates (from text extraction) to canvas pixel positions
-- [x] Draw opaque black rectangles over PII regions
-- [x] Export canvas to PNG
-- [x] pdf-lib creates new PDF with image-only pages — NO original text survives
+### 2.1 Render-to-Image Core — DONE
+- [x] pdfjs renders pages to Canvas at 216 DPI (3x scale)
+- [x] Black rectangles drawn over PII regions
+- [x] pdf-lib creates image-only PDF — no original text survives
 
-### 2.2 Coordinate Mapping
-- [x] pdfjs TextItem transform[4]=X, transform[5]=Y (PDF coordinate space, bottom-left origin)
-- [x] Canvas uses top-left origin — Y-flip required: `canvasY = pageHeight - pdfY`
-- [x] Scale factor applied via RENDER_SCALE constant (3x)
-- [x] Per-entity bounding boxes: `{pageIndex, x, y, width, height}` in PDF points
-- [x] Box merging for overlapping/adjacent items on same line
+### 2.2 Coordinate Mapping — DONE
+- [x] PDF→canvas coordinate transform (Y-flip, scale factor)
+- [x] Per-entity bounding boxes with box merging for overlapping items
 - [x] Horizontal padding (fontSize * 0.1) for proportional font coverage
 
-### 2.3 Metadata Sanitization
-- [x] pdf-lib: wipe title, author, subject, creator, producer, creation/modification dates
-- [x] Strip XMP metadata via catalog.delete(PDFName.of('Metadata'))
-- [x] No embedded files/forms/JS — fresh PDFDocument.create() produces clean document (image-only pages)
-- [x] Full rewrite save (not incremental) to eliminate orphaned objects
-- [ ] Verify: open output in hex editor, grep for original PII strings — must find zero
+### 2.3 Metadata Sanitization — DONE
+- [x] Wipe title, author, dates; strip XMP metadata
+- [x] Fresh PDFDocument.create() = no embedded files/forms/JS
+- [x] Full rewrite save (not incremental)
+- [ ] Hex editor verification (grep output for original PII strings)
 
 ---
 
-## Phase 3: Vision Model Fallback
+## Phase 3: Vision Model Fallback — NOT STARTED
 
-For PDFs where text extraction fails (scanned docs, letter-spacing artifacts, image-heavy layouts).
+For PDFs where text extraction fails: scanned docs, letter-spacing artifacts, image-heavy layouts.
 
 ### 3.1 SmolVLM-256M Integration
 - [ ] Load SmolVLM-256M via Transformers.js with WebGPU
-- [ ] For each page: render to canvas → feed to vision model → get structured text
-- [ ] Auto-trigger when pdfjs text quality is low (heuristic: high single-char item ratio, letter-spacing variance)
-- [ ] Use vision output as input to detection pipeline (same two-phase loop)
+- [ ] Per page: render to canvas → vision model → structured text
+- [ ] Auto-trigger on low text quality (high single-char item ratio)
+- [ ] Feed vision output into existing two-phase detection pipeline
 
 ### 3.2 Vision-Based PII Verification
-- [ ] After text-based detection, render page with redaction boxes removed
-- [ ] SmolVLM scans rendered page for any visible PII that text extraction missed
-- [ ] Catches: PII in images, watermarks, headers rendered as graphics, stamped signatures
+- [ ] Post-detection scan: render page without redaction boxes
+- [ ] SmolVLM checks for PII that text extraction missed
+- [ ] Catches: PII in images, watermarks, graphic-rendered text, stamps
 
 ### 3.3 SmolDocling (Optional)
-- [ ] Document-to-structured-text model for complex layouts (tables, multi-column)
-- [ ] Evaluate if needed after SmolVLM integration — may be redundant
+- [ ] Document-to-structured-text for complex layouts (tables, multi-column)
+- [ ] Evaluate after SmolVLM — may be redundant
 
 ---
 
-## Phase 4: UX Polish
+## Phase 4: UX Polish — IN PROGRESS
 
 ### 4.1 Review Interface
-- [x] In-place PDF viewer: actual PDF pages rendered with pdfjs, colored PII overlays
-- [x] PDFPageViewer: multi-page scrollable viewer with zoom controls, lazy page loading
-- [x] PDFPageCanvas: per-page canvas rendering with clickable entity overlay divs
-- [x] Review mode: semi-transparent colored boxes by category, click to accept/reject
-- [x] Redacted mode: solid black boxes on actual PDF pages (visual preview before download)
-- [x] Category toggles: redact all PERSON, keep all ORGANIZATION, etc.
-- [x] Keyboard shortcuts: Tab/Shift+Tab navigate, Space toggle, Enter accept, Delete reject
-- [x] Focused entity highlighting in viewer and sidebar with auto-scroll
-- [x] Entity accept/reject per entity via sidebar + click-to-toggle on overlays
+Done:
+- [x] In-place PDF viewer with pdfjs rendering + colored PII overlays
+- [x] PDFPageViewer: multi-page, zoom, lazy loading
+- [x] PDFPageCanvas: per-page canvas + clickable entity overlays
+- [x] Review mode (colored boxes) and redacted mode (black boxes) toggle
+- [x] Category toggles (redact all PERSON, keep all ORG, etc.)
+- [x] Keyboard shortcuts: Tab/Shift+Tab, Space, Enter, Delete
+- [x] Focused entity highlighting with auto-scroll
+- [x] Entity accept/reject per entity (sidebar + overlay click)
+- [x] Entity dedup in sidebar (grouped rows with count badges, group toggle)
+
+Todo:
 - [ ] Entity text editing (inline rename of detected text)
-- [ ] Confidence scores display per entity (requires LLM prompt changes)
+- [ ] Confidence scores per entity (requires LLM prompt changes)
 
 ### 4.2 Export Options
-- [x] Redacted PDF download (image-only, default) — render-to-image pipeline
+Done:
+- [x] Redacted PDF download (image-only, render-to-image pipeline)
 - [x] Redacted text download (plain text mode)
-- [ ] Redaction report (what was found, what was redacted, entity counts)
-- [ ] Side-by-side comparison view (was implemented, removed — revisit if needed)
+
+Todo:
+- [ ] Redaction report (what was found/redacted, entity counts by category)
+- [ ] Side-by-side before/after comparison view
 
 ### 4.3 Batch Processing
 - [ ] Multi-file drag-and-drop
-- [ ] Queue processing with progress per file
+- [ ] Queue with per-file progress
 - [ ] Batch redaction settings (apply same rules to all files)
 
 ---
 
-## Research References
+## Models
 
-### Enterprise Redaction (How the Pros Do It)
-- **Relativity / Brainspace**: Content stream surgery + ML classification. Used by DOJ, law firms.
-- **Nuix**: Forensic-grade. Processes terabytes. Content stream level.
-- **Adobe Acrobat Pro**: "Remove Hidden Information" + visual redaction. Industry standard UX.
-- **FOIA shops**: Often use rasterize approach (print to image) as nuclear option.
-- **First Look Media pdf-redact-tools**: Rasterize pipeline. Used by The Intercept journalists. Our primary reference.
-- **Microsoft Presidio**: Open-source PII detection engine. Regex + NER + context. Our detection pipeline reference.
-
-### Key Insight
-> "Redaction is a data destruction problem, not a rendering problem."
-> Content stream surgery must handle every edge case or data leaks. Render-to-image is mathematically complete — if you can't see it, it's gone.
-
-### Models
 | Model | Purpose | Size | Status |
 |-------|---------|------|--------|
-| Qwen3-4B (q4f16) | PII extraction — default | ~2.5GB | Active |
-| gemma-2-2b-it (q4f16) | PII extraction — previous | ~830MB | Replaced (empty results on dense docs) |
-| Qwen 2.5 1.5B Instruct (q4f16) | PII extraction — tested | ~830MB | Tested, misses entities on dense docs |
-| Llama 3.2 1B/3B Instruct | PII extraction | ~500MB/1.5GB | Rejected (safety refusal) |
-| SmolVLM-256M | Vision model (page reading fallback) | ~256MB | Phase 3 |
-
-### WebGPU Browser Support (as of 2026)
-- Chrome 113+ (shipped May 2023)
-- Safari 26+ (shipped 2025)
-- Firefox 141+ (shipped 2025)
-- iOS: blocked (WebKit WebGPU bugs cause crashes — see Meridian project for details)
-
-### Reference Implementation
-- **Meridian project** (`../meridian`): WebLLM + Llama 3.2 1B running in-browser for financial analysis
-- Uses `@mlc-ai/web-llm@^0.2.80` with `CreateMLCEngine`
-- Streaming chat completions, WebGPU detection, iOS exclusion, lazy loading
-- Proven pattern: ~500MB model loads, caches, runs inference on consumer hardware
-
----
+| Qwen3-4B (q4f16) | PII extraction | ~2.5GB | **Active** |
+| SmolVLM-256M | Vision fallback | ~256MB | Phase 3 |
+| gemma-2-2b-it | PII extraction | ~830MB | Replaced (empty results on dense docs) |
+| Llama 3.2 1B/3B | PII extraction | ~500MB/1.5GB | Rejected (safety refusal) |
 
 ## Dead Approaches
-- **Content stream surgery via pdf-lib**: Too many edge cases (fonts, CIDFonts, Type3, ligatures, encoding). One miss = data leak. Render-to-image is safer.
-- **bert-base-NER for PII**: Only 4 generic entity types (PER, ORG, LOC, MISC). Not built for PII. Misses names in natural text.
-- **Piiranha v1 (DeBERTa token classifier)**: Marketed as 98% accuracy but fails on basic inputs. No B- tags emitted (all I-), label flipping mid-word ("Terrac"=CITY, "e"=STREET), missed "Sarah Johnson" entirely. Broken BIO tagging scheme. Token classifiers are fundamentally limited — they don't understand context.
-- **Token classification approach in general**: BIO tagging + subword merging is fragile. SentencePiece vs WordPiece differences, no character offsets from Transformers.js pipeline, fuzzy text matching required. An instruction-following LLM that outputs structured JSON is categorically better.
-- **pdfjs text extraction as sole text source**: Letter-spacing artifacts in styled PDFs are unsolvable at the text extraction level. Vision model fallback required.
-- **Naive `.join(' ')` on pdfjs text items**: Produces "C O N T A C T U S". Must use position-based grouping.
-- **Multiple gap thresholds (0.3x, 0.7x, 0.8x, 1.5x char width)**: None fully solve letter-spacing vs word-gap ambiguity. Vision model is the real answer.
+
+These were tried and failed. Do NOT retry them:
+
+- **Content stream surgery** (pdf-lib): Too many edge cases. One miss = data leak.
+- **bert-base-NER**: Only 4 generic types (PER/ORG/LOC/MISC). Not PII-aware.
+- **Piiranha v1 (DeBERTa)**: Broken BIO tags (all I-, no B-), label flipping, missed names.
+- **Token classification in general**: BIO + subword merging is fragile. LLM + structured JSON is better.
+- **pdfjs text extraction alone**: Letter-spacing artifacts unsolvable. Vision model needed.
+- **Naive `.join(' ')` on text items**: Produces "C O N T A C T U S".
+- **Gap thresholds (0.3x-1.5x char width)**: Can't solve letter-spacing vs word-gap ambiguity.
+- **gemma-2-2b-it**: Empty `text` values on dense/tabular content. Too small.
+- **Llama 3.2 for PII**: Safety alignment refuses to extract PII.
+- **Example entities in prompt**: Causes hallucination across documents.
+- **Concurrent WebLLM detect() calls**: Corrupts GPU buffer state. Must serialize with mutex.
+
+## References
+
+- **First Look Media pdf-redact-tools**: Rasterize pipeline, used by The Intercept. Our primary reference.
+- **Microsoft Presidio**: Open-source PII detection (regex + NER + context). Detection pipeline reference.
+- **Meridian project** (`../meridian`): WebLLM + in-browser AI pattern reference.
+
+> "Redaction is a data destruction problem, not a rendering problem."
