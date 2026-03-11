@@ -10,10 +10,13 @@ interface DevViewerProps {
 export const DevViewer: React.FC<DevViewerProps> = ({ debugLog, modelId }) => {
   const [collapsed, setCollapsed] = useState(false);
   const [expandedSection, setExpandedSection] = useState<string | null>('response');
+  const [viewChunkIdx, setViewChunkIdx] = useState<number | null>(null);
 
   if (debugLog.length === 0) return null;
 
-  const latest = debugLog[debugLog.length - 1];
+  // Show selected chunk or latest
+  const displayIdx = viewChunkIdx !== null && viewChunkIdx < debugLog.length ? viewChunkIdx : debugLog.length - 1;
+  const latest = debugLog[displayIdx];
 
   const toggleSection = (section: string) => {
     setExpandedSection(prev => prev === section ? null : section);
@@ -58,10 +61,26 @@ export const DevViewer: React.FC<DevViewerProps> = ({ debugLog, modelId }) => {
 
       {!collapsed && (
         <div className="p-3 space-y-2 max-h-[400px] overflow-y-auto">
-          {/* Chunk info */}
+          {/* Chunk navigation */}
           {latest.totalChunks > 1 && (
-            <div className="text-xs" style={{ color: 'var(--ink-faint)' }}>
-              Chunk {latest.chunkIndex + 1} of {latest.totalChunks}
+            <div className="flex items-center gap-1.5">
+              {debugLog.map((entry, i) => (
+                <button
+                  key={i}
+                  onClick={() => setViewChunkIdx(i)}
+                  className="px-2 py-0.5 rounded text-xs transition-colors"
+                  style={{
+                    background: i === displayIdx ? 'var(--accent-primary)' : 'var(--bg-base)',
+                    color: i === displayIdx ? '#fff' : 'var(--ink-tertiary)',
+                  }}
+                >
+                  {i + 1}
+                </button>
+              ))}
+              <span className="text-xs ml-1" style={{ color: 'var(--ink-faint)' }}>
+                {debugLog.length}/{latest.totalChunks} chunks
+                {latest.parsedEntities.length > 0 ? ` \u00B7 ${latest.parsedEntities.length} found` : ''}
+              </span>
             </div>
           )}
 

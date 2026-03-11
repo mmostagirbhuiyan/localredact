@@ -200,6 +200,9 @@ export function useNERModel() {
   const engineRef = useRef<WebLLMEngine | null>(null);
   const supportedRef = useRef<boolean | null>(null);
   const [debugLog, setDebugLog] = useState<LLMDebugEntry[]>([]);
+  const abortRef = useRef<AbortController | null>(null);
+  const detectingRef = useRef(false);
+  const [inferenceProgress, setInferenceProgress] = useState<{ current: number; total: number } | null>(null);
 
   // Check support on mount
   useEffect(() => {
@@ -225,8 +228,14 @@ export function useNERModel() {
   }, []);
 
   const loadModel = useCallback(async () => {
-    if (engineRef.current || state.loading) return;
     if (supportedRef.current === false) return;
+
+    // If engine already loaded and ready, just signal ready
+    if (engineRef.current && !state.loading) {
+      setState(prev => ({ ...prev, ready: true }));
+      return;
+    }
+    if (state.loading) return;
 
     setState({ loading: true, ready: false, progress: 0, error: null });
 
@@ -257,9 +266,40 @@ export function useNERModel() {
   const detect = useCallback(async (text: string): Promise<DetectedEntity[]> => {
     if (!engineRef.current) return [];
 
+    // Cancel any in-progress detection — the old run will see this and bail out
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
+
+    // If engine is mid-inference, we can't safely interrupt the WebGPU stream.
+    // Wait for it to finish its current chunk, then proceed.
+    if (detectingRef.current) {
+      console.log('[LLM] Waiting for previous detection to finish...');
+      const waitStart = Date.now();
+      while (detectingRef.current) {
+        if (Date.now() - waitStart > 30000) {
+          console.warn('[LLM] Timed out waiting for previous detection. Forcing reset.');
+          detectingRef.current = false;
+          break;
+        }
+        await new Promise(r => setTimeout(r, 100));
+      }
+      // Give the engine a moment to settle after the previous run
+      await new Promise(r => setTimeout(r, 200));
+    }
+
+    const abort = new AbortController();
+    abortRef.current = abort;
+    detectingRef.current = true;
+
     setDebugLog([]);
+    setInferenceProgress(null);
 
     try {
+      // Reset engine chat before starting new detection
+      await engineRef.current.resetChat(true);
+
       // Chunk text for LLM processing with overlap to catch boundary entities.
       const maxChunkSize = 1500;
       const overlapSize = 200; // chars of overlap between chunks
@@ -295,6 +335,14 @@ export function useNERModel() {
       const existingRanges = new Set<string>();
 
       for (let ci = 0; ci < chunks.length; ci++) {
+        // Check if this detection was aborted (new document loaded)
+        if (abort.signal.aborted) {
+          console.log('[LLM] Detection aborted at chunk', ci);
+          return [];
+        }
+
+        setInferenceProgress({ current: ci + 1, total: chunks.length });
+
         const chunk = chunks[ci];
         // Reset chat history to prevent context bleed between chunks
         await engineRef.current.resetChat(true);
@@ -307,12 +355,19 @@ export function useNERModel() {
           ],
           stream: true,
           temperature: 0,
-          max_tokens: 2048,
+          max_tokens: 1024,
         });
 
         for await (const part of completion) {
+          if (abort.signal.aborted) break;
           const delta = part.choices[0]?.delta?.content || '';
           if (delta) response += delta;
+        }
+
+        // Check abort after streaming completes
+        if (abort.signal.aborted) {
+          console.log('[LLM] Detection aborted during chunk', ci);
+          return [];
         }
 
         console.log('[LLM] Raw response:', response);
@@ -360,12 +415,20 @@ export function useNERModel() {
         }
       }
 
+      setInferenceProgress(null);
       return allEntities.sort((a, b) => a.start - b.start);
     } catch (err) {
+      if (abort.signal.aborted) {
+        console.log('[LLM] Detection aborted');
+        return [];
+      }
       console.error('[LLM] Detection failed:', err);
       return [];
+    } finally {
+      detectingRef.current = false;
+      setInferenceProgress(null);
     }
   }, []);
 
-  return { ...state, loadModel, detect, debugLog };
+  return { ...state, loadModel, detect, debugLog, inferenceProgress };
 }

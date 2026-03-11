@@ -353,6 +353,41 @@ const App: React.FC = () => {
                 </div>
               )}
 
+              {/* LLM inference progress — shows while processing chunks */}
+              {!ner.loading && ner.inferenceProgress && (
+                <div
+                  className="glass-panel rounded-2xl overflow-hidden px-5 py-3 flex items-center gap-4"
+                >
+                  <Loader2
+                    size={16}
+                    className="animate-spin flex-shrink-0"
+                    style={{ color: 'var(--accent-primary)' }}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-medium" style={{ color: 'var(--ink-secondary)' }}>
+                        AI scanning text
+                      </span>
+                      <span className="text-xs font-medium" style={{ color: 'var(--ink-primary)' }}>
+                        Chunk {ner.inferenceProgress.current} of {ner.inferenceProgress.total}
+                      </span>
+                    </div>
+                    <div
+                      className="h-1.5 rounded-full overflow-hidden"
+                      style={{ background: 'var(--bg-elevated)' }}
+                    >
+                      <div
+                        className="h-full rounded-full transition-all duration-500"
+                        style={{
+                          width: `${Math.round((ner.inferenceProgress.current / ner.inferenceProgress.total) * 100)}%`,
+                          background: 'var(--accent-primary)',
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {pdf.isPDF && pdf.getPDFDocument() ? (
                 <PDFPageViewer
                   pdfDoc={pdf.getPDFDocument()!}

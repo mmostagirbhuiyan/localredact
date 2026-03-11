@@ -37,7 +37,7 @@ and produces structured JSON — no BIO tag gymnastics, no broken subword mergin
 ### 1.4 Replace useNERModel Hook
 - [x] Rewrite `src/hooks/useNERModel.ts` → uses WebLLM instead of Transformers.js token-classification
 - [x] Same public interface: `{ loading, ready, progress, error, loadModel, detect }`
-- [ ] Remove `@huggingface/transformers` dependency (keep for Phase 3 vision model)
+- [ ] Remove `@huggingface/transformers` dependency (deferred — needed for Phase 3 SmolVLM)
 - [x] Update vite.config.ts chunking: web-llm chunk replaces transformers chunk
 
 ### 1.5 AI Transparency Panel
@@ -106,18 +106,20 @@ For PDFs where text extraction fails (scanned docs, letter-spacing artifacts, im
 - [x] Category toggles: redact all PERSON, keep all ORGANIZATION, etc.
 - [x] Keyboard shortcuts: Tab/Shift+Tab navigate, Space toggle, Enter accept, Delete reject
 - [x] Focused entity highlighting in viewer and sidebar with auto-scroll
-- [ ] Entity review panel: accept/reject/edit per entity with confidence scores
+- [x] Entity accept/reject per entity via sidebar + click-to-toggle on overlays
+- [ ] Entity text editing (inline rename of detected text)
+- [ ] Confidence scores display per entity (requires LLM prompt changes)
 
-### 4.2 Batch Processing
+### 4.2 Export Options
+- [x] Redacted PDF download (image-only, default) — render-to-image pipeline
+- [x] Redacted text download (plain text mode)
+- [ ] Redaction report (what was found, what was redacted, entity counts)
+- [ ] Side-by-side comparison view (was implemented, removed — revisit if needed)
+
+### 4.3 Batch Processing
 - [ ] Multi-file drag-and-drop
 - [ ] Queue processing with progress per file
 - [ ] Batch redaction settings (apply same rules to all files)
-
-### 4.3 Export Options
-- [ ] Redacted PDF (image-only, default)
-- [ ] Redacted PDF with OCR layer (searchable, but only redacted text)
-- [ ] Redaction report (what was found, what was redacted, confidence scores)
-- [ ] Side-by-side comparison PDF
 
 ---
 
