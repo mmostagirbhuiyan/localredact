@@ -45,9 +45,13 @@ Reference: ../meridian uses same WebLLM + Llama 3.2 1B pattern for in-browser AI
 | src/lib/redactor.ts | Text replacement logic ([REDACTED] or black blocks) |
 | src/hooks/useNERModel.ts | WebLLM model loading + PII inference (replacing token classifier) |
 | src/lib/pii-prompt.ts | System prompt for structured PII extraction via LLM |
-| src/hooks/usePDFParser.ts | pdfjs-dist text extraction |
+| src/lib/pdf-redactor.ts | Render-to-image PDF redaction + coordinate mapping |
+| src/hooks/usePDFParser.ts | pdfjs-dist text extraction + page info + PDF doc ref |
+| src/components/PDFPageViewer.tsx | Multi-page PDF viewer with zoom, lazy loading |
+| src/components/PDFPageCanvas.tsx | Single PDF page canvas + clickable entity overlays |
 | src/components/DropZone.tsx | PDF drag-and-drop + text paste input |
-| src/components/DocumentViewer.tsx | Highlighted text with PII annotations |
+| src/components/DocumentViewer.tsx | Highlighted text with PII annotations (text-only mode) |
+| src/components/DevViewer.tsx | AI transparency panel (prompt/response/parsed entities) |
 | src/components/EntityList.tsx | Sidebar list of detected entities |
 | src/components/RedactControls.tsx | Accept/reject/redact-all controls |
 | src/components/ShareCard.tsx | Viral share card ("Redacted N entities. Zero bytes uploaded.") |
@@ -86,11 +90,12 @@ Fonts: Space Grotesk (headings), Outfit (body). Dark-first, light mode supported
 - Gap thresholds (0.3x-1.5x char width) — can't disambiguate letter-spacing vs word gaps. Vision model is the answer.
 
 ## Session State
-Last Updated: 2026-03-10 | Session 4
-Current Status: Phase 1 complete. Phase 2.1-2.2 complete. gemma-2-2b-it is the default model.
-Two-phase detection working: regex (instant) + WebLLM gemma-2-2b (lazy-loaded, WebGPU).
-Render-to-image PDF redaction pipeline working (pdfjs canvas → black boxes → pdf-lib image-only PDF).
-Next: Phase 2.3 remaining tasks (XMP metadata, embedded files cleanup), then Phase 3.
+Last Updated: 2026-03-10 | Session 5
+Current Status: In-place PDF redaction working. Phase 1-2 complete. Phase 4.1 mostly done.
+PDF flow: upload → render pages in viewer → detect PII → colored overlay boxes → accept/reject → black boxes → download.
+Text flow: paste → highlight text → detect → redact text → download.
+Components: PDFPageViewer (multi-page, zoom, lazy) + PDFPageCanvas (per-page canvas + overlay divs).
+Next: Test end-to-end with real PDFs, then Phase 3 (vision fallback).
 
 ## Archived Sessions
 ### Session 2 (2026-03-10)
@@ -103,3 +108,8 @@ Phase 1 complete: WebLLM + gemma-2-2b-it default, AI transparency panel, prompt 
 Phase 2.1-2.2 complete: render-to-image pipeline, coordinate mapping, box merging.
 Fixed: JSON trailing commas, chat history bleed, hallucinated entities from example prompt.
 Added written date regex patterns. Model table: gemma-2-2b active, Qwen tested, Llama rejected.
+### Session 5 (2026-03-10)
+In-place PDF redaction: PDFPageViewer + PDFPageCanvas render actual PDF pages with entity overlays.
+Review mode: colored semi-transparent boxes per category. Redacted mode: solid black boxes.
+Category toggles, keyboard shortcuts (Tab/Space/Enter/Delete), metadata sanitization complete.
+Fixed text matching in pdf-redactor (mirrors extractPageText spacing for proper item lookup).

@@ -98,11 +98,15 @@ For PDFs where text extraction fails (scanned docs, letter-spacing artifacts, im
 ## Phase 4: UX Polish
 
 ### 4.1 Review Interface
-- [x] Side-by-side before/after preview (original text vs redacted text toggle)
-- [ ] Entity review panel: accept/reject/edit per entity with confidence scores
+- [x] In-place PDF viewer: actual PDF pages rendered with pdfjs, colored PII overlays
+- [x] PDFPageViewer: multi-page scrollable viewer with zoom controls, lazy page loading
+- [x] PDFPageCanvas: per-page canvas rendering with clickable entity overlay divs
+- [x] Review mode: semi-transparent colored boxes by category, click to accept/reject
+- [x] Redacted mode: solid black boxes on actual PDF pages (visual preview before download)
 - [x] Category toggles: redact all PERSON, keep all ORGANIZATION, etc.
 - [x] Keyboard shortcuts: Tab/Shift+Tab navigate, Space toggle, Enter accept, Delete reject
-- [x] Focused entity highlighting in DocumentViewer and EntityList with auto-scroll
+- [x] Focused entity highlighting in viewer and sidebar with auto-scroll
+- [ ] Entity review panel: accept/reject/edit per entity with confidence scores
 
 ### 4.2 Batch Processing
 - [ ] Multi-file drag-and-drop
