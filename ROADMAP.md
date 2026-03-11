@@ -112,7 +112,7 @@ Done:
 - [x] Redacted text download (plain text mode)
 
 Todo:
-- [ ] Redaction report (what was found/redacted, entity counts by category)
+- [x] Redaction report (what was found/redacted, entity counts by category)
 - [ ] Side-by-side before/after comparison view
 
 ### 4.3 Batch Processing

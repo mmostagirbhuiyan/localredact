@@ -14,6 +14,7 @@ import { detectWithRegex } from './lib/regex-patterns';
 import { redactText, RedactStyle } from './lib/redactor';
 import { createRedactedPDF } from './lib/pdf-redactor';
 import { DetectedEntity } from './lib/entity-types';
+import { generateRedactionReport } from './lib/redaction-report';
 
 type AppState = 'input' | 'scanning' | 'review' | 'redacted';
 
@@ -168,6 +169,19 @@ const App: React.FC = () => {
       URL.revokeObjectURL(url);
     }
   }, [redactedText, redactedPdfBytes, pdf.fileName]);
+
+  const handleDownloadReport = useCallback(() => {
+    const report = generateRedactionReport(entities, pdf.fileName || undefined);
+    const blob = new Blob([report], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = pdf.fileName
+      ? pdf.fileName.replace(/\.pdf$/i, '_redaction_report.txt')
+      : 'redaction_report.txt';
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [entities, pdf.fileName]);
 
   const handleStartOver = useCallback(() => {
     setAppState('input');
@@ -498,6 +512,7 @@ const App: React.FC = () => {
                 onRejectAll={handleRejectAll}
                 onRedact={handleRedact}
                 onDownload={handleDownload}
+                onDownloadReport={handleDownloadReport}
                 redacted={true}
                 isPDF={pdf.isPDF}
               />

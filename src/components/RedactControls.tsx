@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShieldCheck, Download, CheckCheck, XCircle, Loader2 } from 'lucide-react';
+import { ShieldCheck, Download, CheckCheck, XCircle, Loader2, FileText } from 'lucide-react';
 import { RedactStyle } from '../lib/redactor';
 
 interface RedactControlsProps {
@@ -11,6 +11,7 @@ interface RedactControlsProps {
   onRejectAll: () => void;
   onRedact: () => void;
   onDownload: () => void;
+  onDownloadReport?: () => void;
   redacted: boolean;
   redacting?: boolean;
   redactProgress?: string;
@@ -26,6 +27,7 @@ export const RedactControls: React.FC<RedactControlsProps> = ({
   onRejectAll,
   onRedact,
   onDownload,
+  onDownloadReport,
   redacted,
   redacting = false,
   redactProgress = '',
@@ -110,10 +112,18 @@ export const RedactControls: React.FC<RedactControlsProps> = ({
           )}
         </button>
       ) : (
-        <button onClick={onDownload} className="btn-primary w-full">
-          <Download size={16} />
-          Download {isPDF ? 'Redacted PDF' : 'Redacted Text'}
-        </button>
+        <div className="space-y-2">
+          <button onClick={onDownload} className="btn-primary w-full">
+            <Download size={16} />
+            Download {isPDF ? 'Redacted PDF' : 'Redacted Text'}
+          </button>
+          {onDownloadReport && (
+            <button onClick={onDownloadReport} className="btn-secondary w-full text-xs h-9">
+              <FileText size={14} />
+              Download Redaction Report
+            </button>
+          )}
+        </div>
       )}
 
       {entityCount > 0 && (
