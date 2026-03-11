@@ -105,6 +105,13 @@ const App: React.FC = () => {
     );
   }, []);
 
+  const handleEditEntityText = useCallback((ids: string[], newText: string) => {
+    const idSet = new Set(ids);
+    setEntities((prev) =>
+      prev.map((e) => (idSet.has(e.id) ? { ...e, text: newText } : e)),
+    );
+  }, []);
+
   const [redactedPdfBytes, setRedactedPdfBytes] = useState<Uint8Array | null>(null);
   const [redacting, setRedacting] = useState(false);
   const [redactProgress, setRedactProgress] = useState('');
@@ -445,6 +452,7 @@ const App: React.FC = () => {
                 onToggleGroup={handleToggleGroup}
                 onScrollTo={handleToggleEntity}
                 onToggleCategory={handleToggleCategory}
+                onEditText={handleEditEntityText}
                 focusedEntityId={focusedEntityId}
               />
             </div>

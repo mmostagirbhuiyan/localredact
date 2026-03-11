@@ -103,7 +103,7 @@ Done:
 - [x] Entity dedup in sidebar (grouped rows with count badges, group toggle)
 
 Todo:
-- [ ] Entity text editing (inline rename of detected text)
+- [x] Entity text editing (inline rename of detected text)
 - [ ] Confidence scores per entity (requires LLM prompt changes)
 
 ### 4.2 Export Options

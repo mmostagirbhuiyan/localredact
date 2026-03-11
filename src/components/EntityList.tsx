@@ -1,5 +1,5 @@
-import React from 'react';
-import { Check, X, Eye } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Check, X, Eye, Pencil } from 'lucide-react';
 import { DetectedEntity, ENTITY_CONFIG } from '../lib/entity-types';
 
 interface EntityListProps {
@@ -8,6 +8,7 @@ interface EntityListProps {
   onToggleGroup?: (ids: string[], accepted: boolean) => void;
   onScrollTo: (id: string) => void;
   onToggleCategory?: (category: string, accepted: boolean) => void;
+  onEditText?: (ids: string[], newText: string) => void;
   focusedEntityId?: string | null;
 }
 
@@ -20,7 +21,19 @@ interface EntityGroup {
   firstId: string;
 }
 
-export const EntityList: React.FC<EntityListProps> = ({ entities, onToggle, onToggleGroup, onScrollTo, onToggleCategory, focusedEntityId }) => {
+export const EntityList: React.FC<EntityListProps> = ({ entities, onToggle, onToggleGroup, onScrollTo, onToggleCategory, onEditText, focusedEntityId }) => {
+  const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState('');
+  const editInputRef = useRef<HTMLInputElement>(null);
+
+  // Focus input when entering edit mode
+  useEffect(() => {
+    if (editingGroupId && editInputRef.current) {
+      editInputRef.current.focus();
+      editInputRef.current.select();
+    }
+  }, [editingGroupId]);
+
   // Group by category first, then collapse duplicates within each category
   const grouped = entities.reduce<Record<string, DetectedEntity[]>>((acc, entity) => {
     const key = entity.category;
@@ -119,14 +132,53 @@ export const EntityList: React.FC<EntityListProps> = ({ entities, onToggle, onTo
                       outlineOffset: '-1px',
                     }}
                   >
-                    <span
-                      className="flex-1 text-xs font-mono truncate"
-                      style={{ color: group.allAccepted ? `var(${config.colorVar})` : 'var(--ink-tertiary)' }}
-                    >
-                      {group.text}
-                    </span>
+                    {editingGroupId === group.firstId ? (
+                      <input
+                        ref={editInputRef}
+                        type="text"
+                        value={editValue}
+                        onChange={(e) => setEditValue(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            const trimmed = editValue.trim();
+                            if (trimmed && trimmed !== group.text && onEditText) {
+                              onEditText(group.ids, trimmed);
+                            }
+                            setEditingGroupId(null);
+                          } else if (e.key === 'Escape') {
+                            setEditingGroupId(null);
+                          }
+                        }}
+                        onBlur={() => {
+                          const trimmed = editValue.trim();
+                          if (trimmed && trimmed !== group.text && onEditText) {
+                            onEditText(group.ids, trimmed);
+                          }
+                          setEditingGroupId(null);
+                        }}
+                        className="flex-1 text-xs font-mono bg-transparent border-b outline-none min-w-0"
+                        style={{
+                          color: `var(${config.colorVar})`,
+                          borderColor: `var(${config.colorVar})`,
+                        }}
+                      />
+                    ) : (
+                      <span
+                        className="flex-1 text-xs font-mono truncate cursor-text"
+                        style={{ color: group.allAccepted ? `var(${config.colorVar})` : 'var(--ink-tertiary)' }}
+                        onDoubleClick={() => {
+                          if (onEditText) {
+                            setEditingGroupId(group.firstId);
+                            setEditValue(group.text);
+                          }
+                        }}
+                        title="Double-click to edit"
+                      >
+                        {group.text}
+                      </span>
+                    )}
 
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1 shrink-0">
                       {group.ids.length > 1 && (
                         <span
                           className="text-xs px-1.5 py-0.5 rounded-full"
@@ -134,6 +186,18 @@ export const EntityList: React.FC<EntityListProps> = ({ entities, onToggle, onTo
                         >
                           {group.ids.length}x
                         </span>
+                      )}
+                      {onEditText && (
+                        <button
+                          onClick={() => {
+                            setEditingGroupId(group.firstId);
+                            setEditValue(group.text);
+                          }}
+                          className="p-1 rounded hover:opacity-80 transition-opacity"
+                          title="Edit entity text"
+                        >
+                          <Pencil size={12} style={{ color: 'var(--ink-tertiary)' }} />
+                        </button>
                       )}
                       <button
                         onClick={() => onScrollTo(group.firstId)}
