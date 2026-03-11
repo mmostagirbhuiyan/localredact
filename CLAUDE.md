@@ -86,11 +86,11 @@ Fonts: Space Grotesk (headings), Outfit (body). Dark-first, light mode supported
 - Gap thresholds (0.3x-1.5x char width) — can't disambiguate letter-spacing vs word gaps. Vision model is the answer.
 
 ## Session State
-Last Updated: 2026-03-10 | Session 3
-Current Status: v1 functional (regex only — NER model being replaced). Piiranha v1 tested and rejected.
-Decision: Replace ALL token classifiers with WebLLM (Llama 3.2 1B Instruct) for PII extraction.
-Pattern proven in ../meridian project. Modern laptops have the compute for 1-3B LLMs via WebGPU.
-Next: Phase 1.1 of ROADMAP.md — add @mlc-ai/web-llm, create useWebLLM hook.
+Last Updated: 2026-03-10 | Session 4
+Current Status: Phase 1 complete. Phase 2.1-2.2 complete. gemma-2-2b-it is the default model.
+Two-phase detection working: regex (instant) + WebLLM gemma-2-2b (lazy-loaded, WebGPU).
+Render-to-image PDF redaction pipeline working (pdfjs canvas → black boxes → pdf-lib image-only PDF).
+Next: Phase 2.3 remaining tasks (XMP metadata, embedded files cleanup), then Phase 3.
 
 ## Archived Sessions
 ### Session 2 (2026-03-10)
@@ -98,3 +98,8 @@ NER subword merging fixed (6987cf3). PDF text extraction improved. v2 roadmap cr
 ### Session 3 (2026-03-10)
 Tested Piiranha v1 — failed badly (no B- tags, missed names, label flipping). Pivoted to WebLLM approach.
 Updated ROADMAP.md: Phase 1 now uses WebLLM + Llama 3.2 instead of token classifiers.
+### Session 4 (2026-03-10)
+Phase 1 complete: WebLLM + gemma-2-2b-it default, AI transparency panel, prompt anti-hallucination.
+Phase 2.1-2.2 complete: render-to-image pipeline, coordinate mapping, box merging.
+Fixed: JSON trailing commas, chat history bleed, hallucinated entities from example prompt.
+Added written date regex patterns. Model table: gemma-2-2b active, Qwen tested, Llama rejected.

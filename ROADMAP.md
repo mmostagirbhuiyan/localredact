@@ -51,23 +51,25 @@ and produces structured JSON — no BIO tag gymnastics, no broken subword mergin
 Content destruction, not visual overlay. Same approach as First Look Media's pdf-redact-tools.
 
 ### 2.1 Render-to-Image Core
-- [ ] pdfjs renders each page to Canvas at 300 DPI
-- [ ] Map detected PII coordinates (from text extraction) to canvas pixel positions
-- [ ] Draw opaque black rectangles over PII regions
-- [ ] Export canvas to PNG
-- [ ] pdf-lib creates new PDF with image-only pages — NO original text survives
+- [x] pdfjs renders each page to Canvas at 216 DPI (3x scale)
+- [x] Map detected PII coordinates (from text extraction) to canvas pixel positions
+- [x] Draw opaque black rectangles over PII regions
+- [x] Export canvas to PNG
+- [x] pdf-lib creates new PDF with image-only pages — NO original text survives
 
 ### 2.2 Coordinate Mapping
-- [ ] pdfjs TextItem transform[4]=X, transform[5]=Y (PDF coordinate space, bottom-left origin)
-- [ ] Canvas uses top-left origin — Y-flip required: `canvasY = pageHeight - pdfY`
-- [ ] Scale factor: `canvasWidth / pdfPageWidth` (viewport scale from pdfjs render)
-- [ ] Store per-entity bounding boxes: `{pageIndex, x, y, width, height}` in PDF points
+- [x] pdfjs TextItem transform[4]=X, transform[5]=Y (PDF coordinate space, bottom-left origin)
+- [x] Canvas uses top-left origin — Y-flip required: `canvasY = pageHeight - pdfY`
+- [x] Scale factor applied via RENDER_SCALE constant (3x)
+- [x] Per-entity bounding boxes: `{pageIndex, x, y, width, height}` in PDF points
+- [x] Box merging for overlapping/adjacent items on same line
+- [x] Horizontal padding (fontSize * 0.1) for proportional font coverage
 
 ### 2.3 Metadata Sanitization
-- [ ] pdf-lib: wipe title, author, subject, creator, producer, dates
-- [ ] Strip XMP metadata via catalog.delete(PDFName.of('Metadata'))
-- [ ] Remove embedded files (Names), form fields (AcroForm), JavaScript (AA, OpenAction)
-- [ ] Full rewrite save (not incremental) to eliminate orphaned objects
+- [x] pdf-lib: wipe title, author, subject, creator, producer, creation/modification dates
+- [x] Strip XMP metadata via catalog.delete(PDFName.of('Metadata'))
+- [x] No embedded files/forms/JS — fresh PDFDocument.create() produces clean document (image-only pages)
+- [x] Full rewrite save (not incremental) to eliminate orphaned objects
 - [ ] Verify: open output in hex editor, grep for original PII strings — must find zero
 
 ---
@@ -98,7 +100,7 @@ For PDFs where text extraction fails (scanned docs, letter-spacing artifacts, im
 ### 4.1 Review Interface
 - [ ] Side-by-side before/after preview (original page vs redacted page)
 - [ ] Entity review panel: accept/reject/edit per entity with confidence scores
-- [ ] Category toggles: redact all PERSON, keep all ORGANIZATION, etc.
+- [x] Category toggles: redact all PERSON, keep all ORGANIZATION, etc.
 - [ ] Keyboard shortcuts for rapid review (Tab to next, Enter to accept, Delete to reject)
 
 ### 4.2 Batch Processing
@@ -131,8 +133,8 @@ For PDFs where text extraction fails (scanned docs, letter-spacing artifacts, im
 ### Models
 | Model | Purpose | Size | Status |
 |-------|---------|------|--------|
-| Qwen 2.5 1.5B Instruct (q4f16) | PII extraction — default | ~830MB | Active |
-| gemma-2-2b-it (q4f16) | PII extraction — alternative | ~830MB | Tested, works |
+| gemma-2-2b-it (q4f16) | PII extraction — default | ~830MB | Active |
+| Qwen 2.5 1.5B Instruct (q4f16) | PII extraction — alternative | ~830MB | Tested, misses entities on dense docs |
 | Llama 3.2 1B/3B Instruct | PII extraction | ~500MB/1.5GB | Rejected (safety refusal) |
 | SmolVLM-256M | Vision model (page reading fallback) | ~256MB | Phase 3 |
 

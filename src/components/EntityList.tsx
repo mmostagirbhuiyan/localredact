@@ -6,9 +6,10 @@ interface EntityListProps {
   entities: DetectedEntity[];
   onToggle: (id: string) => void;
   onScrollTo: (id: string) => void;
+  onToggleCategory?: (category: string, accepted: boolean) => void;
 }
 
-export const EntityList: React.FC<EntityListProps> = ({ entities, onToggle, onScrollTo }) => {
+export const EntityList: React.FC<EntityListProps> = ({ entities, onToggle, onScrollTo, onToggleCategory }) => {
   const grouped = entities.reduce<Record<string, DetectedEntity[]>>((acc, entity) => {
     const key = entity.category;
     if (!acc[key]) acc[key] = [];
@@ -34,6 +35,8 @@ export const EntityList: React.FC<EntityListProps> = ({ entities, onToggle, onSc
 
       {Object.entries(grouped).map(([category, items]) => {
         const config = ENTITY_CONFIG[category as keyof typeof ENTITY_CONFIG];
+        const allAccepted = items.every((e) => e.accepted);
+        const noneAccepted = items.every((e) => !e.accepted);
         return (
           <div key={category} className="mb-3">
             <div
@@ -43,9 +46,22 @@ export const EntityList: React.FC<EntityListProps> = ({ entities, onToggle, onSc
                 className="w-2 h-2 rounded-full"
                 style={{ background: `var(${config.colorVar})` }}
               />
-              <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--ink-tertiary)' }}>
+              <span className="text-xs font-semibold uppercase tracking-wider flex-1" style={{ color: 'var(--ink-tertiary)' }}>
                 {config.label} ({items.length})
               </span>
+              {onToggleCategory && (
+                <button
+                  onClick={() => onToggleCategory(category, noneAccepted || !allAccepted)}
+                  className="text-xs px-2 py-0.5 rounded-full transition-colors"
+                  style={{
+                    background: allAccepted ? 'var(--success-soft, rgba(34,197,94,0.1))' : 'var(--bg-soft)',
+                    color: allAccepted ? 'var(--success)' : 'var(--ink-tertiary)',
+                  }}
+                  title={allAccepted ? `Reject all ${config.label}` : `Accept all ${config.label}`}
+                >
+                  {allAccepted ? 'all' : noneAccepted ? 'none' : 'mixed'}
+                </button>
+              )}
             </div>
 
             <div className="space-y-1">

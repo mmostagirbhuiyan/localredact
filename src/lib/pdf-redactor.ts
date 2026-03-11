@@ -1,5 +1,5 @@
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-import { PDFDocument } from 'pdf-lib';
+import { PDFDocument, PDFName } from 'pdf-lib';
 import type { PDFPageInfo } from '../hooks/usePDFParser';
 import type { DetectedEntity } from './entity-types';
 import type { TextItem } from 'pdfjs-dist/types/src/display/api';
@@ -257,13 +257,23 @@ export async function createRedactedPDF(
     });
   }
 
-  // Sanitize metadata
+  // Sanitize metadata — Info dict
   outputPdf.setTitle('');
   outputPdf.setAuthor('');
   outputPdf.setSubject('');
   outputPdf.setKeywords([]);
   outputPdf.setProducer('LocalRedact');
   outputPdf.setCreator('');
+  outputPdf.setCreationDate(new Date(0));
+  outputPdf.setModificationDate(new Date(0));
+
+  // Strip XMP metadata if present (shouldn't be on a fresh doc, but defensive)
+  const catalog = outputPdf.context.lookup(outputPdf.context.trailerInfo.Root);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const catalogDict = catalog as any;
+  if (catalogDict && typeof catalogDict.delete === 'function') {
+    catalogDict.delete(PDFName.of('Metadata'));
+  }
 
   return outputPdf.save();
 }

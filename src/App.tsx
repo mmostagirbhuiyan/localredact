@@ -87,6 +87,12 @@ const App: React.FC = () => {
     setEntities((prev) => prev.map((e) => ({ ...e, accepted: false })));
   }, []);
 
+  const handleToggleCategory = useCallback((category: string, accepted: boolean) => {
+    setEntities((prev) =>
+      prev.map((e) => (e.category === category ? { ...e, accepted } : e)),
+    );
+  }, []);
+
   const [redactedPdfBytes, setRedactedPdfBytes] = useState<Uint8Array | null>(null);
   const [redacting, setRedacting] = useState(false);
 
@@ -308,6 +314,7 @@ const App: React.FC = () => {
                 entities={entities}
                 onToggle={handleToggleEntity}
                 onScrollTo={handleToggleEntity}
+                onToggleCategory={handleToggleCategory}
               />
             </div>
           </div>
