@@ -160,15 +160,84 @@ export function useOCR() {
       ctx.putImageData(imageData, 0, 0);
 
       console.log(`[OCR] Extracting text from page ${pageIdx + 1}...`);
-      const pageResult = await ocrPage(canvas);
+
+      // First pass: OCR the page as-is
+      let pageResult = await ocrPage(canvas);
+      let rotationUsed: 'none' | 'cw' | 'ccw' = 'none';
+
+      // Check if OCR confidence is very low — may indicate rotated content.
+      // Scanned certificates are often portrait PDFs with content rotated 90
+      // degrees within the page. Tesseract reads garbage without correction.
+      const avgConf = (words: OCRWord[]) =>
+        words.length > 0 ? words.reduce((s, w) => s + w.confidence, 0) / words.length : 0;
+      const initialConf = avgConf(pageResult.words);
+
+      if (initialConf < 0.5 && pageResult.words.length > 10) {
+        console.log(`[OCR] Page ${pageIdx + 1}: low confidence (${(initialConf * 100).toFixed(1)}%), trying rotations...`);
+
+        const makeRotated = (clockwise: boolean): HTMLCanvasElement => {
+          const r = document.createElement('canvas');
+          r.width = canvas.height;
+          r.height = canvas.width;
+          const rc = r.getContext('2d')!;
+          if (clockwise) {
+            rc.translate(r.width, 0);
+            rc.rotate(Math.PI / 2);
+          } else {
+            rc.translate(0, r.height);
+            rc.rotate(-Math.PI / 2);
+          }
+          rc.drawImage(canvas, 0, 0);
+          return r;
+        };
+
+        const cwCanvas = makeRotated(true);
+        const ccwCanvas = makeRotated(false);
+        const cwResult = await ocrPage(cwCanvas);
+        const ccwResult = await ocrPage(ccwCanvas);
+        const cwConf = avgConf(cwResult.words);
+        const ccwConf = avgConf(ccwResult.words);
+
+        console.log(`[OCR] Page ${pageIdx + 1}: original=${(initialConf * 100).toFixed(1)}%, CW=${(cwConf * 100).toFixed(1)}%, CCW=${(ccwConf * 100).toFixed(1)}%`);
+
+        if (cwConf > initialConf && cwConf >= ccwConf) {
+          pageResult = cwResult;
+          rotationUsed = 'cw';
+        } else if (ccwConf > initialConf) {
+          pageResult = ccwResult;
+          rotationUsed = 'ccw';
+        }
+      }
+
       pageResult.pageIndex = pageIdx;
 
-      // Scale bounding boxes from canvas pixels back to PDF points
+      // Scale bounding boxes from OCR canvas pixels back to PDF points.
+      // For rotated pages, transform bboxes back to the original coordinate system.
+      const cw = canvas.width;
+      const ch = canvas.height;
       for (const word of pageResult.words) {
-        word.bbox.x0 /= OCR_RENDER_SCALE;
-        word.bbox.y0 /= OCR_RENDER_SCALE;
-        word.bbox.x1 /= OCR_RENDER_SCALE;
-        word.bbox.y1 /= OCR_RENDER_SCALE;
+        if (rotationUsed === 'cw') {
+          // CW: rotated is (ch x cw). rotated(rx,ry) → original(ry, ch - rx - rw)
+          const rx0 = word.bbox.x0, ry0 = word.bbox.y0;
+          const rx1 = word.bbox.x1, ry1 = word.bbox.y1;
+          word.bbox.x0 = ry0 / OCR_RENDER_SCALE;
+          word.bbox.y0 = (ch - rx1) / OCR_RENDER_SCALE;
+          word.bbox.x1 = ry1 / OCR_RENDER_SCALE;
+          word.bbox.y1 = (ch - rx0) / OCR_RENDER_SCALE;
+        } else if (rotationUsed === 'ccw') {
+          // CCW: rotated is (ch x cw). rotated(rx,ry) → original(cw - ry, rx)
+          const rx0 = word.bbox.x0, ry0 = word.bbox.y0;
+          const rx1 = word.bbox.x1, ry1 = word.bbox.y1;
+          word.bbox.x0 = (cw - ry1) / OCR_RENDER_SCALE;
+          word.bbox.y0 = rx0 / OCR_RENDER_SCALE;
+          word.bbox.x1 = (cw - ry0) / OCR_RENDER_SCALE;
+          word.bbox.y1 = rx1 / OCR_RENDER_SCALE;
+        } else {
+          word.bbox.x0 /= OCR_RENDER_SCALE;
+          word.bbox.y0 /= OCR_RENDER_SCALE;
+          word.bbox.x1 /= OCR_RENDER_SCALE;
+          word.bbox.y1 /= OCR_RENDER_SCALE;
+        }
       }
 
       console.log(`[OCR] Page ${pageIdx + 1}: ${pageResult.words.length} words, ${pageResult.text.length} chars`);

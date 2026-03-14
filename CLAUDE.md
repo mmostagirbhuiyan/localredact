@@ -149,4 +149,7 @@ Added Levenshtein edit-distance matching in both findEntityPositions (useNERMode
 findOCRTextBounds (pdf-redactor) — LLM returns slightly different text than OCR source
 (e.g., "BHUICYAN" vs "BHUIYAN"), edit distance catches these near-misses.
 Tested on passport scan: names, dates, passport number, MRZ all detected and redacted.
+Auto-rotation for sideways scans: if initial OCR confidence < 50%, tries 90 CW and CCW rotations
+and picks the best. Fixes scanned certificates stored sideways in portrait-dimensioned PDFs.
+Tested on certificates.pdf (4 pages, 2 rotated): all pages detected correctly after rotation.
 Dead approaches: Otsu binarization, cleanText filtering, preserve_interword_spaces.

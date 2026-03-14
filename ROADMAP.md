@@ -86,7 +86,13 @@ For PDFs where text extraction fails: scanned docs, image-only PDFs, photographe
 - [x] Edit-distance (Levenshtein) matching for LLM text vs OCR text near-misses
 - [x] `createRedactedPDF` accepts optional OCR results per page
 
-### 3.3 Dead Approaches
+### 3.3 Auto-Rotation for Sideways Scans — DONE
+- [x] If initial OCR confidence < 50%, try 90 CW and 90 CCW rotations
+- [x] Pick rotation with highest average word confidence
+- [x] Transform bounding boxes back to original page coordinate system
+- [x] Handles scanned certificates stored sideways in portrait-dimensioned PDFs
+
+### 3.4 Dead Approaches
 - SmolVLM-256M: no bounding boxes, too small, wrong API. Replaced by Tesseract.js.
 - Otsu binarization: too aggressive on watermarked docs. Gamma contrast works.
 - cleanText filtering: dropped real PII. Use raw OCR text.
