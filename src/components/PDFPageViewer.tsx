@@ -4,6 +4,7 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { PDFPageInfo } from '../hooks/usePDFParser';
 import type { DetectedEntity } from '../lib/entity-types';
 import { PDFPageCanvas } from './PDFPageCanvas';
+import type { OCRPageResult } from '../hooks/useOCR';
 
 interface PDFPageViewerProps {
   pdfDoc: PDFDocumentProxy;
@@ -12,6 +13,7 @@ interface PDFPageViewerProps {
   mode: 'review' | 'redacted';
   focusedEntityId?: string | null;
   onEntityClick: (id: string) => void;
+  ocrResults?: OCRPageResult[];
 }
 
 const MIN_SCALE = 0.5;
@@ -26,6 +28,7 @@ export const PDFPageViewer: React.FC<PDFPageViewerProps> = ({
   mode,
   focusedEntityId,
   onEntityClick,
+  ocrResults,
 }) => {
   const [scale, setScale] = useState(DEFAULT_SCALE);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -159,6 +162,7 @@ export const PDFPageViewer: React.FC<PDFPageViewerProps> = ({
                 mode={mode}
                 focusedEntityId={focusedEntityId}
                 onEntityClick={onEntityClick}
+                ocrWords={ocrResults?.find(r => r.pageIndex === page.pageIndex)?.words}
               />
             ) : (
               // Placeholder for off-screen pages

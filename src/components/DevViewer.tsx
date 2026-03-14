@@ -28,6 +28,8 @@ export const DevViewer: React.FC<DevViewerProps> = ({ debugLog, modelId }) => {
       style={{
         background: 'var(--bg-elevated)',
         border: '1px solid var(--border-subtle)',
+        maxWidth: '100%',
+        overflow: 'hidden',
       }}
     >
       {/* Header */}
@@ -60,7 +62,7 @@ export const DevViewer: React.FC<DevViewerProps> = ({ debugLog, modelId }) => {
       </button>
 
       {!collapsed && (
-        <div className="p-3 space-y-2 max-h-[400px] overflow-y-auto">
+        <div className="p-3 space-y-2 max-h-[400px] overflow-y-auto overflow-x-hidden">
           {/* Chunk navigation */}
           {latest.totalChunks > 1 && (
             <div className="flex items-center gap-1.5 flex-wrap">
@@ -92,7 +94,7 @@ export const DevViewer: React.FC<DevViewerProps> = ({ debugLog, modelId }) => {
             onToggle={toggleSection}
           >
             <pre
-              className="whitespace-pre-wrap text-xs leading-relaxed p-3 rounded-lg"
+              className="whitespace-pre-wrap break-all text-xs leading-relaxed p-3 rounded-lg"
               style={{ background: 'var(--bg-base)', color: 'var(--ink-secondary)' }}
             >
               {latest.systemPrompt}
@@ -107,7 +109,7 @@ export const DevViewer: React.FC<DevViewerProps> = ({ debugLog, modelId }) => {
             onToggle={toggleSection}
           >
             <pre
-              className="whitespace-pre-wrap text-xs leading-relaxed p-3 rounded-lg"
+              className="whitespace-pre-wrap break-all text-xs leading-relaxed p-3 rounded-lg"
               style={{ background: 'var(--bg-base)', color: 'var(--ink-secondary)' }}
             >
               {latest.userPrompt}
@@ -122,7 +124,7 @@ export const DevViewer: React.FC<DevViewerProps> = ({ debugLog, modelId }) => {
             onToggle={toggleSection}
           >
             <pre
-              className="whitespace-pre-wrap text-xs leading-relaxed p-3 rounded-lg"
+              className="whitespace-pre-wrap break-all text-xs leading-relaxed p-3 rounded-lg"
               style={{ background: 'var(--bg-base)', color: 'var(--ink-primary)' }}
             >
               {latest.rawResponse}

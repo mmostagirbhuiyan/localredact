@@ -3,6 +3,7 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { PDFPageInfo } from '../hooks/usePDFParser';
 import { DetectedEntity, ENTITY_CONFIG } from '../lib/entity-types';
 import { getPageEntityOverlays, type EntityOverlay } from '../lib/pdf-redactor';
+import type { OCRWord } from '../hooks/useOCR';
 
 interface PDFPageCanvasProps {
   pdfDoc: PDFDocumentProxy;
@@ -13,6 +14,7 @@ interface PDFPageCanvasProps {
   mode: 'review' | 'redacted';
   focusedEntityId?: string | null;
   onEntityClick: (id: string) => void;
+  ocrWords?: OCRWord[];
 }
 
 export const PDFPageCanvas: React.FC<PDFPageCanvasProps> = ({
@@ -24,6 +26,7 @@ export const PDFPageCanvas: React.FC<PDFPageCanvasProps> = ({
   mode,
   focusedEntityId,
   onEntityClick,
+  ocrWords,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const renderTaskRef = useRef<{ cancel: () => void } | null>(null);
@@ -79,6 +82,7 @@ export const PDFPageCanvas: React.FC<PDFPageCanvasProps> = ({
         const overlays = getPageEntityOverlays(
           entities.filter((e) => e.accepted),
           pageInfo,
+          ocrWords,
         );
         ctx.fillStyle = '#000000';
         for (const overlay of overlays) {
@@ -101,13 +105,13 @@ export const PDFPageCanvas: React.FC<PDFPageCanvasProps> = ({
         renderTaskRef.current = null;
       }
     };
-  }, [pdfDoc, pageIndex, scale, mode, entities, pageInfo, displayWidth, displayHeight]);
+  }, [pdfDoc, pageIndex, scale, mode, entities, pageInfo, displayWidth, displayHeight, ocrWords]);
 
   // Compute overlays for review mode
   const overlays: EntityOverlay[] = useMemo(() => {
     if (mode !== 'review') return [];
-    return getPageEntityOverlays(entities, pageInfo);
-  }, [mode, entities, pageInfo]);
+    return getPageEntityOverlays(entities, pageInfo, ocrWords);
+  }, [mode, entities, pageInfo, ocrWords]);
 
   return (
     <div

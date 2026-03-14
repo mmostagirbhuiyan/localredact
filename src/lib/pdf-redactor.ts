@@ -3,6 +3,7 @@ import { PDFDocument, PDFName } from 'pdf-lib';
 import type { PDFPageInfo } from '../hooks/usePDFParser';
 import type { DetectedEntity } from './entity-types';
 import type { TextItem } from 'pdfjs-dist/types/src/display/api';
+import type { OCRPageResult, OCRWord } from '../hooks/useOCR';
 
 export interface BoundingBox {
   pageIndex: number;
@@ -165,6 +166,99 @@ function mergeBoxes(boxes: BoundingBox[]): BoundingBox[] {
   return merged;
 }
 
+/**
+ * Find bounding boxes for an entity's text within OCR word results.
+ * OCR words have bounding boxes in PDF points (already scaled from canvas pixels).
+ * Searches for consecutive word sequences matching the entity text.
+ */
+function findOCRTextBounds(
+  entityText: string,
+  ocrWords: OCRWord[],
+): BoundingBox[] {
+  const boxes: BoundingBox[] = [];
+  const entityLower = entityText.toLowerCase().trim();
+  if (!entityLower || ocrWords.length === 0) return boxes;
+
+  // Build running text from OCR words to find entity spans
+  const wordTexts = ocrWords.map(w => w.text.trim()).filter(t => t.length > 0);
+  const wordsClean = ocrWords.filter(w => w.text.trim().length > 0);
+
+  // Try sliding window of concatenated words
+  for (let start = 0; start < wordsClean.length; start++) {
+    let concat = '';
+    for (let end = start; end < wordsClean.length; end++) {
+      if (end > start) concat += ' ';
+      concat += wordTexts[end];
+
+      const concatLower = concat.toLowerCase();
+
+      // Exact match
+      if (concatLower === entityLower) {
+        for (let k = start; k <= end; k++) {
+          const w = wordsClean[k];
+          boxes.push({
+            pageIndex: 0,
+            x: w.bbox.x0,
+            y: w.bbox.y0,
+            width: w.bbox.x1 - w.bbox.x0,
+            height: w.bbox.y1 - w.bbox.y0,
+          });
+        }
+        break;
+      }
+
+      // If we've gone past the entity length, stop extending
+      if (concatLower.length > entityLower.length + 10) break;
+    }
+  }
+
+  // Also try single-word containment for entities that appear within a word
+  // (e.g., email addresses, SSNs that Tesseract may keep as one token)
+  if (boxes.length === 0) {
+    for (const w of wordsClean) {
+      if (w.text.toLowerCase().includes(entityLower)) {
+        boxes.push({
+          pageIndex: 0,
+          x: w.bbox.x0,
+          y: w.bbox.y0,
+          width: w.bbox.x1 - w.bbox.x0,
+          height: w.bbox.y1 - w.bbox.y0,
+        });
+      }
+    }
+  }
+
+  // Fuzzy: try checking if entity is a substring of concatenated neighbors
+  if (boxes.length === 0) {
+    for (let start = 0; start < wordsClean.length; start++) {
+      let concat = '';
+      for (let end = start; end < Math.min(start + 10, wordsClean.length); end++) {
+        if (end > start) concat += ' ';
+        concat += wordTexts[end];
+
+        if (concat.toLowerCase().includes(entityLower)) {
+          for (let k = start; k <= end; k++) {
+            const w = wordsClean[k];
+            boxes.push({
+              pageIndex: 0,
+              x: w.bbox.x0,
+              y: w.bbox.y0,
+              width: w.bbox.x1 - w.bbox.x0,
+              height: w.bbox.y1 - w.bbox.y0,
+            });
+          }
+          break;
+        }
+
+        if (concat.length > entityLower.length + 20) break;
+      }
+      if (boxes.length > 0) break;
+    }
+  }
+
+  return mergeBoxes(boxes);
+}
+
 export interface EntityOverlay {
   entityId: string;
   entity: DetectedEntity;
@@ -187,17 +281,31 @@ export function mapEntityToBoundsOnPage(
 
 /**
  * Map entities to per-entity overlays for a given page.
+ * For scanned pages with no text items, uses OCR word bounding boxes instead.
  */
 export function getPageEntityOverlays(
   entities: DetectedEntity[],
   page: PDFPageInfo,
+  ocrWords?: OCRWord[],
 ): EntityOverlay[] {
   const overlays: EntityOverlay[] = [];
-  const pageEntities = entities.filter(
-    (e) => e.start < page.textEnd && e.end > page.textStart,
-  );
+  const isScannedPage = page.textItems.length === 0;
+
+  // For scanned pages, all entities are candidates (no text offsets to filter by)
+  const pageEntities = isScannedPage
+    ? entities
+    : entities.filter((e) => e.start < page.textEnd && e.end > page.textStart);
+
   for (const entity of pageEntities) {
-    const boxes = mapEntityToBoundsOnPage(entity, page);
+    let boxes: BoundingBox[];
+    if (isScannedPage && ocrWords && ocrWords.length > 0) {
+      boxes = findOCRTextBounds(entity.text, ocrWords);
+      for (const box of boxes) {
+        box.pageIndex = page.pageIndex;
+      }
+    } else {
+      boxes = mapEntityToBoundsOnPage(entity, page);
+    }
     if (boxes.length > 0) {
       overlays.push({ entityId: entity.id, entity, boxes });
     }
@@ -303,15 +411,49 @@ export async function createRedactedPDF(
   entities: DetectedEntity[],
   pages: PDFPageInfo[],
   onProgress?: (current: number, total: number) => void,
+  ocrResults?: OCRPageResult[],
 ): Promise<Uint8Array> {
   const pageBoxes = mapEntitiesToBounds(entities, pages);
+  const accepted = entities.filter(e => e.accepted);
   const totalPages = pdfDoc.numPages;
   const outputPdf = await PDFDocument.create();
+
+  // Build OCR lookup by page index
+  const ocrByPage = new Map<number, OCRPageResult>();
+  if (ocrResults) {
+    for (const ocrPage of ocrResults) {
+      ocrByPage.set(ocrPage.pageIndex, ocrPage);
+    }
+  }
 
   for (let i = 0; i < totalPages; i++) {
     onProgress?.(i + 1, totalPages);
 
-    const boxes = pageBoxes.get(i) || [];
+    let boxes = pageBoxes.get(i) || [];
+    const isScannedPage = pages[i] && pages[i].textItems.length === 0;
+    const ocrPage = ocrByPage.get(i);
+
+    // For scanned pages with OCR data, map accepted entities to OCR bounding boxes
+    if (isScannedPage && ocrPage && ocrPage.words.length > 0 && boxes.length === 0) {
+      const ocrBoxes: BoundingBox[] = [];
+      console.log(`[LocalRedact] Page ${i + 1}: OCR has ${ocrPage.words.length} words. Mapping ${accepted.length} accepted entities...`);
+      for (const entity of accepted) {
+        const entityBoxes = findOCRTextBounds(entity.text, ocrPage.words);
+        console.log(`[LocalRedact]   Entity "${entity.text}" (${entity.category}): ${entityBoxes.length} boxes found`);
+        for (const box of entityBoxes) {
+          box.pageIndex = i;
+          ocrBoxes.push(box);
+        }
+      }
+      if (ocrBoxes.length > 0) {
+        boxes = mergeBoxes(ocrBoxes);
+        console.log(`[LocalRedact] Page ${i + 1}: mapped ${ocrBoxes.length} OCR boxes for ${accepted.length} entities.`);
+      } else {
+        console.warn(`[LocalRedact] Page ${i + 1}: NO OCR boxes found for any entity. OCR words sample:`,
+          ocrPage.words.slice(0, 20).map(w => w.text));
+      }
+    }
+
     const canvas = await renderRedactedPage(pdfDoc, i, boxes);
     const pngBytes = await canvasToPNG(canvas);
 

@@ -10,6 +10,8 @@ import { DevViewer } from './components/DevViewer';
 import { ThemeToggle } from './components/ThemeToggle';
 import { usePDFParser } from './hooks/usePDFParser';
 import { useNERModel, MODEL_ID } from './hooks/useNERModel';
+import { useOCR } from './hooks/useOCR';
+import type { OCRPageResult } from './hooks/useOCR';
 import { detectWithRegex } from './lib/regex-patterns';
 import { redactText, RedactStyle } from './lib/redactor';
 import { createRedactedPDF } from './lib/pdf-redactor';
@@ -44,12 +46,30 @@ const App: React.FC = () => {
 
   const pdf = usePDFParser();
   const ner = useNERModel();
+  const ocr = useOCR();
+  const [ocrResults, setOcrResults] = useState<OCRPageResult[]>([]);
+
+  // OCR fallback: when text quality is poor, extract text via Tesseract.js
+  const [visionText, setVisionText] = useState<string | null>(null);
+  const visionScannedRef = React.useRef<string | null>(null);
+
+  // The text used for detection — vision-extracted text overrides pdfjs text
+  const detectionText = visionText ?? pdf.text;
 
   // Phase 1: Instant regex detection when text is available
+  // Also handles scanned PDFs where pdf.text is empty but pages exist
   useEffect(() => {
-    if (pdf.text && appState === 'scanning') {
-      let regexEntities = detectWithRegex(pdf.text);
-      // Apply batch category rules if in batch mode
+    if (appState !== 'scanning') return;
+    if (pdf.loading) return;
+
+    const hasText = pdf.text && pdf.text.trim().length > 0;
+    const hasPages = pdf.isPDF && pdf.pages.length > 0;
+
+    // Nothing to work with
+    if (!hasText && !hasPages) return;
+
+    if (hasText) {
+      let regexEntities = detectWithRegex(pdf.text!);
       if (fileQueue.length > 1) {
         regexEntities = regexEntities.map(e => ({
           ...e,
@@ -57,21 +77,84 @@ const App: React.FC = () => {
         }));
       }
       setEntities(regexEntities);
-      setAppState('review');
+    }
 
-      // Phase 2: Start NER model loading
+    setAppState('review');
+
+    // Phase 2: Start NER model loading (only if we have text for it)
+    if (hasText) {
       ner.loadModel();
     }
-  }, [pdf.text, appState]);
+
+    // Phase 2b: If text quality is poor or no text at all, start OCR
+    if (pdf.textQuality?.needsVision) {
+      ocr.loadWorker();
+    }
+  }, [pdf.text, pdf.loading, pdf.isPDF, pdf.pages.length, appState]);
+
+  // OCR extraction: when worker is ready and pages need OCR fallback
+  useEffect(() => {
+    if (
+      ocr.ready &&
+      pdf.isPDF &&
+      pdf.textQuality?.needsVision &&
+      appState === 'review' &&
+      visionScannedRef.current !== pdf.fileName
+    ) {
+      visionScannedRef.current = pdf.fileName;
+      const pdfDoc = pdf.getPDFDocument();
+      if (!pdfDoc) return;
+
+      const pagesToScan = pdf.textQuality.pagesNeedingVision;
+      console.log(`[OCR] Extracting text from ${pagesToScan.length} pages via Tesseract.js...`);
+
+      ocr.ocrPDFPages(pdfDoc, pagesToScan).then(({ pages: ocrPages }) => {
+        // Store OCR results for coordinate mapping during redaction
+        setOcrResults(ocrPages);
+
+        // Build combined text: use OCR text for flagged pages, pdfjs text for others
+        const pageTexts: string[] = [];
+        for (let i = 0; i < pdf.pages.length; i++) {
+          const ocrPage = ocrPages.find(op => op.pageIndex === i);
+          if (ocrPage && ocrPage.text.length > 0) {
+            pageTexts.push(ocrPage.text);
+          } else {
+            const pageInfo = pdf.pages[i];
+            const originalPageText = pdf.text?.slice(pageInfo.textStart, pageInfo.textEnd) ?? '';
+            pageTexts.push(originalPageText);
+          }
+        }
+
+        const combined = pageTexts.join('\n\n');
+        console.log(`[OCR] Combined text ready (${combined.length} chars). Re-running detection.`);
+        console.log(`[OCR] Extracted text:\n`, combined);
+        setVisionText(combined);
+
+        // Re-run regex on the OCR-improved text
+        let regexEntities = detectWithRegex(combined);
+        if (fileQueue.length > 1) {
+          regexEntities = regexEntities.map(e => ({
+            ...e,
+            accepted: batchCategoryRules[e.category] ?? true,
+          }));
+        }
+        setEntities(regexEntities);
+        // Reset NER scanned ref so LLM re-scans with the better text
+        nerScannedRef.current = null;
+        // Start NER if not already loading (scanned PDFs skip NER initially since no text)
+        ner.loadModel();
+      });
+    }
+  }, [ocr.ready, pdf.isPDF, pdf.textQuality, appState, pdf.fileName]);
 
   // Phase 2: NER detection when model is ready and we have text to scan.
   // Track which text has been scanned to avoid duplicate runs.
   const nerScannedRef = React.useRef<string | null>(null);
 
   useEffect(() => {
-    if (ner.ready && pdf.text && appState === 'review' && nerScannedRef.current !== pdf.text) {
-      nerScannedRef.current = pdf.text;
-      ner.detect(pdf.text).then((nerEntities) => {
+    if (ner.ready && detectionText && appState === 'review' && nerScannedRef.current !== detectionText) {
+      nerScannedRef.current = detectionText;
+      ner.detect(detectionText).then((nerEntities) => {
         setEntities((prev) => {
           // Merge NER entities, avoiding overlaps with regex entities
           const existing = new Set(prev.map((e) => `${e.start}-${e.end}`));
@@ -89,7 +172,7 @@ const App: React.FC = () => {
         });
       });
     }
-  }, [ner.ready, pdf.text, appState]);
+  }, [ner.ready, detectionText, appState]);
 
   const handleFileSelect = useCallback(
     (file: File) => {
@@ -98,7 +181,10 @@ const App: React.FC = () => {
       setRedactedText(null);
       setRedactedPdfBytes(null);
       setShowComparison(false);
+      setVisionText(null);
+      setOcrResults([]);
       nerScannedRef.current = null;
+      visionScannedRef.current = null;
       pdf.parseFile(file);
     },
     [pdf],
@@ -119,7 +205,10 @@ const App: React.FC = () => {
       setRedactedText(null);
       setRedactedPdfBytes(null);
       setShowComparison(false);
+      setVisionText(null);
+      setOcrResults([]);
       nerScannedRef.current = null;
+      visionScannedRef.current = null;
       pdf.parseFile(files[0]);
     },
     [pdf],
@@ -157,7 +246,10 @@ const App: React.FC = () => {
     setRedactedText(null);
     setRedactedPdfBytes(null);
     setShowComparison(false);
+    setVisionText(null);
+    setOcrResults([]);
     nerScannedRef.current = null;
+    visionScannedRef.current = null;
     pdf.parseFile(fileQueue[nextIdx].file);
   }, [activeQueueIdx, fileQueue, entities, redactedPdfBytes, pdf]);
 
@@ -182,6 +274,9 @@ const App: React.FC = () => {
       setEntities([]);
       setRedactedText(null);
       setRedactedPdfBytes(null);
+      setVisionText(null);
+      setOcrResults([]);
+      visionScannedRef.current = null;
       pdf.setText(text);
     },
     [pdf],
@@ -222,7 +317,7 @@ const App: React.FC = () => {
   }, []);
 
   const handleRedact = useCallback(async () => {
-    if (!pdf.text) return;
+    if (!detectionText) return;
 
     if (pdf.isPDF) {
       const pdfDoc = pdf.getPDFDocument();
@@ -232,24 +327,24 @@ const App: React.FC = () => {
       try {
         const bytes = await createRedactedPDF(pdfDoc, entities, pdf.pages, (current, total) => {
           setRedactProgress(`Rendering page ${current}/${total}...`);
-        });
+        }, ocrResults.length > 0 ? ocrResults : undefined);
         setRedactedPdfBytes(bytes);
         // Also produce text version for preview
-        const result = redactText(pdf.text, entities, redactStyle);
+        const result = redactText(detectionText, entities, redactStyle);
         setRedactedText(result);
         setAppState('redacted');
       } finally {
         setRedacting(false);
       }
     } else {
-      const result = redactText(pdf.text, entities, redactStyle);
+      const result = redactText(detectionText, entities, redactStyle);
       setRedactedText(result);
       setAppState('redacted');
     }
-  }, [pdf.text, pdf.isPDF, pdf.pages, entities, redactStyle]);
+  }, [detectionText, pdf.isPDF, pdf.pages, entities, redactStyle]);
 
   const handleRedactAndNext = useCallback(async () => {
-    if (!pdf.text || !pdf.isPDF) return;
+    if (!detectionText || !pdf.isPDF) return;
     const pdfDoc = pdf.getPDFDocument();
     if (!pdfDoc) return;
 
@@ -275,7 +370,7 @@ const App: React.FC = () => {
       if (nextIdx === -1) {
         // Last file — show redacted state
         setRedactedPdfBytes(bytes);
-        const result = redactText(pdf.text, entities, redactStyle);
+        const result = redactText(detectionText, entities, redactStyle);
         setRedactedText(result);
         setAppState('redacted');
       } else {
@@ -286,13 +381,16 @@ const App: React.FC = () => {
         setRedactedText(null);
         setRedactedPdfBytes(null);
         setShowComparison(false);
+        setVisionText(null);
+        setOcrResults([]);
         nerScannedRef.current = null;
+        visionScannedRef.current = null;
         pdf.parseFile(fileQueue[nextIdx].file);
       }
     } finally {
       setRedacting(false);
     }
-  }, [pdf.text, pdf.isPDF, pdf.pages, entities, redactStyle, fileQueue, activeQueueIdx, pdf]);
+  }, [detectionText, pdf.isPDF, pdf.pages, entities, redactStyle, fileQueue, activeQueueIdx, pdf]);
 
   const handleDownload = useCallback(() => {
     if (redactedPdfBytes) {
@@ -342,7 +440,10 @@ const App: React.FC = () => {
     setActiveQueueIdx(-1);
     setBatchCategoryRules(defaultCategoryRules());
     setShowComparison(false);
+    setVisionText(null);
+    setOcrResults([]);
     nerScannedRef.current = null;
+    visionScannedRef.current = null;
     pdf.reset();
   }, [pdf]);
 
@@ -474,6 +575,13 @@ const App: React.FC = () => {
                   } else if (appState === 'scanning') {
                     activePhase = 'Detecting...';
                     activePercent = 20;
+                  } else if (ocr.loading) {
+                    activePhase = 'Loading OCR engine...';
+                    activePercent = 15;
+                  } else if (ocr.extractionProgress) {
+                    const vPct = ocr.extractionProgress.current / ocr.extractionProgress.total;
+                    activePhase = `OCR scanning page ${ocr.extractionProgress.current}/${ocr.extractionProgress.total}`;
+                    activePercent = 25 + Math.round(vPct * 15);
                   } else if (ner.loading) {
                     activePhase = `Loading AI model ${ner.progress}%`;
                     activePercent = 20 + Math.round(ner.progress * 0.3);
@@ -505,7 +613,7 @@ const App: React.FC = () => {
                     >
                       {item.status === 'done' && <Check size={12} style={{ color: 'var(--accent-primary)' }} />}
                       {isActive && (() => {
-                        const isWorking = pdf.loading || appState === 'scanning' || ner.loading || !!ner.inferenceProgress || redacting;
+                        const isWorking = pdf.loading || appState === 'scanning' || ner.loading || !!ner.inferenceProgress || ocr.loading || !!ocr.extractionProgress || redacting;
                         return <Loader2 size={12} className={isWorking ? 'animate-spin' : ''} style={{ color: 'var(--accent-primary)' }} />;
                       })()}
                       {item.status === 'skipped' && <SkipForward size={12} style={{ color: 'var(--ink-faint)' }} />}
@@ -663,7 +771,7 @@ const App: React.FC = () => {
         )}
 
         {/* Review state */}
-        {appState === 'review' && pdf.text && (
+        {appState === 'review' && (detectionText || (pdf.isPDF && pdf.pages.length > 0)) && (
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6">
             <div className="space-y-4">
               {/* AI model loading indicator */}
@@ -755,6 +863,62 @@ const App: React.FC = () => {
                 </div>
               )}
 
+              {/* OCR loading indicator */}
+              {ocr.loading && (
+                <div
+                  className="glass-panel rounded-2xl overflow-hidden px-5 py-3 flex items-center gap-4"
+                >
+                  <Loader2
+                    size={16}
+                    className="animate-spin flex-shrink-0"
+                    style={{ color: 'var(--accent-primary)' }}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium" style={{ color: 'var(--ink-secondary)' }}>
+                      Loading OCR engine...
+                    </p>
+                    <p className="text-xs mt-1" style={{ color: 'var(--ink-faint)' }}>
+                      Poor text extraction detected. Using Tesseract OCR for better results.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* OCR extraction progress */}
+              {!ocr.loading && ocr.extractionProgress && (
+                <div
+                  className="glass-panel rounded-2xl overflow-hidden px-5 py-3 flex items-center gap-4"
+                >
+                  <Loader2
+                    size={16}
+                    className="animate-spin flex-shrink-0"
+                    style={{ color: 'var(--accent-primary)' }}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-medium" style={{ color: 'var(--ink-secondary)' }}>
+                        OCR scanning pages
+                      </span>
+                      <span className="text-xs font-medium" style={{ color: 'var(--ink-primary)' }}>
+                        Page {ocr.extractionProgress.current} of {ocr.extractionProgress.total}
+                      </span>
+                    </div>
+                    <div
+                      className="h-1.5 rounded-full overflow-hidden"
+                      style={{ background: 'var(--bg-elevated)' }}
+                    >
+                      <div
+                        className="h-full rounded-full transition-all duration-500"
+                        style={{
+                          width: `${Math.round((ocr.extractionProgress.current / ocr.extractionProgress.total) * 100)}%`,
+                          background: 'var(--accent-primary)',
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {pdf.isPDF && pdf.getPDFDocument() ? (
                 <PDFPageViewer
                   pdfDoc={pdf.getPDFDocument()!}
@@ -763,10 +927,11 @@ const App: React.FC = () => {
                   mode="review"
                   focusedEntityId={focusedEntityId}
                   onEntityClick={handleToggleEntity}
+                  ocrResults={ocrResults}
                 />
               ) : (
                 <DocumentViewer
-                  text={pdf.text}
+                  text={detectionText || ''}
                   entities={entities}
                   onEntityClick={handleToggleEntity}
                   focusedEntityId={focusedEntityId}
@@ -868,6 +1033,7 @@ const App: React.FC = () => {
                           entities={entities}
                           mode="review"
                           onEntityClick={handleToggleEntity}
+                          ocrResults={ocrResults}
                         />
                       </div>
                       <div className="space-y-1">
@@ -878,6 +1044,7 @@ const App: React.FC = () => {
                           entities={entities}
                           mode="redacted"
                           onEntityClick={handleToggleEntity}
+                          ocrResults={ocrResults}
                         />
                       </div>
                     </div>
@@ -888,6 +1055,7 @@ const App: React.FC = () => {
                       entities={entities}
                       mode="redacted"
                       onEntityClick={handleToggleEntity}
+                      ocrResults={ocrResults}
                     />
                   )}
                 </div>
@@ -908,7 +1076,7 @@ const App: React.FC = () => {
                       <div className="space-y-1">
                         <span className="text-xs font-medium" style={{ color: 'var(--ink-tertiary)' }}>Original</span>
                         <DocumentViewer
-                          text={pdf.text || ''}
+                          text={detectionText || ''}
                           entities={entities}
                           onEntityClick={handleToggleEntity}
                         />
@@ -982,6 +1150,15 @@ const App: React.FC = () => {
             style={{ background: 'var(--warning-soft)', color: 'var(--warning)' }}
           >
             AI detection unavailable: {ner.error}. Regex detection still active.
+          </div>
+        )}
+
+        {ocr.error && pdf.textQuality?.needsVision && (
+          <div
+            className="mt-4 p-4 rounded-xl text-sm"
+            style={{ background: 'var(--warning-soft)', color: 'var(--warning)' }}
+          >
+            OCR fallback unavailable: {ocr.error}. Using text extraction only.
           </div>
         )}
       </main>
