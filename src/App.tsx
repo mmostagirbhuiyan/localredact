@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { Shield, Loader2, Columns2, FileText, Files, ChevronRight, Check, Download, SkipForward } from 'lucide-react';
+import { Shield, Loader2, Columns2, FileText, Files, ChevronRight, Check, Download, SkipForward, Cpu, Eye, Lock, Smartphone } from 'lucide-react';
 import { DropZone } from './components/DropZone';
 import { DocumentViewer } from './components/DocumentViewer';
 import { PDFPageViewer } from './components/PDFPageViewer';
@@ -736,24 +736,89 @@ const App: React.FC = () => {
 
         {/* Input state */}
         {appState === 'input' && (
-          <div className="flex flex-col items-center gap-8">
-            <div className="text-center max-w-lg">
+          <div className="flex flex-col items-center gap-10">
+            {/* Hero */}
+            <div className="text-center max-w-2xl">
               <h2
-                className="text-3xl font-bold mb-3"
+                className="text-4xl font-bold mb-4 leading-tight"
                 style={{ fontFamily: "'Space Grotesk', system-ui, sans-serif", color: 'var(--ink-primary)' }}
               >
-                Redact PII. Locally.
+                Redact sensitive data.<br />
+                <span style={{ color: 'var(--accent-primary)' }}>Entirely in your browser.</span>
               </h2>
-              <p className="text-base" style={{ color: 'var(--ink-secondary)' }}>
-                Your document never leaves your browser. Not even to our server. Because we don't have one.
+              <p className="text-base mb-8" style={{ color: 'var(--ink-secondary)' }}>
+                AI-powered PII detection and redaction. No uploads, no servers, no tracking.
+                Your document never leaves your device.
               </p>
+
+              {/* Differentiators */}
+              <div className="flex flex-wrap justify-center gap-6 mb-2">
+                <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--ink-tertiary)' }}>
+                  <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: 'var(--accent-primary-soft)' }}>
+                    <Lock size={14} style={{ color: 'var(--accent-primary)' }} />
+                  </div>
+                  <span>Zero data uploaded</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--ink-tertiary)' }}>
+                  <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: 'var(--accent-primary-soft)' }}>
+                    <Cpu size={14} style={{ color: 'var(--accent-primary)' }} />
+                  </div>
+                  <span>On-device AI (WebGPU)</span>
+                </div>
+                <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--ink-tertiary)' }}>
+                  <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: 'var(--accent-primary-soft)' }}>
+                    <Eye size={14} style={{ color: 'var(--accent-primary)' }} />
+                  </div>
+                  <span>OCR for scanned docs</span>
+                </div>
+              </div>
             </div>
+
+            {/* Mobile gate */}
+            {typeof window !== 'undefined' && window.innerWidth <= 768 && (
+              <div
+                className="w-full max-w-md mx-auto rounded-2xl p-6 text-center"
+                style={{ background: 'var(--warning-soft)', border: '1px solid var(--warning)' }}
+              >
+                <Smartphone size={24} className="mx-auto mb-3" style={{ color: 'var(--warning)' }} />
+                <p className="text-sm font-medium mb-1" style={{ color: 'var(--warning)' }}>
+                  Desktop browser required
+                </p>
+                <p className="text-xs" style={{ color: 'var(--ink-tertiary)' }}>
+                  LocalRedact uses a 2.5GB AI model that requires a desktop GPU.
+                  Open this page on a laptop or desktop with Chrome, Edge, or Safari.
+                </p>
+              </div>
+            )}
+
             <DropZone
               onFileSelect={handleFileSelect}
               onFilesSelect={handleFilesSelect}
               onTextPaste={handleTextPaste}
               loading={pdf.loading}
             />
+
+            {/* How it works */}
+            <div className="w-full max-w-2xl">
+              <div className="flex justify-between gap-4">
+                {[
+                  { step: '1', title: 'Drop', desc: 'Upload a PDF or paste text' },
+                  { step: '2', title: 'Detect', desc: 'AI finds names, SSNs, addresses' },
+                  { step: '3', title: 'Redact', desc: 'Black boxes destroy the original' },
+                ].map((item) => (
+                  <div key={item.step} className="flex-1 text-center">
+                    <div
+                      className="w-8 h-8 rounded-full flex items-center justify-center mx-auto mb-2 text-xs font-bold"
+                      style={{ background: 'var(--accent-primary-soft)', color: 'var(--accent-primary)' }}
+                    >
+                      {item.step}
+                    </div>
+                    <p className="text-sm font-medium" style={{ color: 'var(--ink-primary)' }}>{item.title}</p>
+                    <p className="text-xs mt-0.5" style={{ color: 'var(--ink-tertiary)' }}>{item.desc}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         )}
 
@@ -799,7 +864,7 @@ const App: React.FC = () => {
                       Loading AI Detection Model
                     </h3>
                     <p className="text-xs mb-4" style={{ color: 'var(--ink-tertiary)' }}>
-                      Downloading and initializing (~2.5GB, one-time)
+                      First load ~30s, cached after (~2.5GB)
                     </p>
 
                     <div className="max-w-xs mx-auto">
@@ -1163,8 +1228,22 @@ const App: React.FC = () => {
       </main>
 
       {/* Footer */}
-      <footer className="text-center py-6 text-xs" style={{ color: 'var(--ink-faint)' }}>
-        100% client-side. Zero data leaves your browser.
+      <footer className="text-center py-8 space-y-1">
+        <p className="text-xs" style={{ color: 'var(--ink-faint)' }}>
+          100% client-side. Zero data leaves your browser.
+        </p>
+        <p className="text-xs" style={{ color: 'var(--ink-faint)' }}>
+          Built by{' '}
+          <a
+            href="https://mmostagirbhuiyan.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="transition-colors"
+            style={{ color: 'var(--ink-tertiary)' }}
+          >
+            Mostagir Bhuiyan
+          </a>
+        </p>
       </footer>
     </div>
   );

@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef } from 'react';
-import { Upload, FileText, Type } from 'lucide-react';
+import { Upload, FileText, Type, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface DropZoneProps {
@@ -129,10 +129,37 @@ export const DropZone: React.FC<DropZoneProps> = ({ onFileSelect, onFilesSelect,
               <p className="text-lg font-medium mb-2" style={{ color: 'var(--ink-primary)' }}>
                 {loading ? 'Parsing PDF...' : 'Drop PDFs here'}
               </p>
-              <p className="text-sm" style={{ color: 'var(--ink-tertiary)' }}>
+              <p className="text-sm mb-3" style={{ color: 'var(--ink-tertiary)' }}>
                 or click to browse. Drop multiple files for batch processing.
               </p>
+              <div className="flex items-center justify-center gap-3 text-xs" style={{ color: 'var(--ink-faint)' }}>
+                <span>PDF</span>
+                <span style={{ color: 'var(--border-default)' }}>|</span>
+                <span>Scanned docs</span>
+                <span style={{ color: 'var(--border-default)' }}>|</span>
+                <span>Image-only PDFs</span>
+              </div>
             </div>
+            {/* Try sample button */}
+            {!loading && (
+              <div className="text-center mt-4">
+                <button
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    try {
+                      const res = await fetch('/sample-document.txt');
+                      const text = await res.text();
+                      onTextPaste(text);
+                    } catch { /* ignore */ }
+                  }}
+                  className="inline-flex items-center gap-1.5 text-xs font-medium px-4 py-2 rounded-full transition-colors"
+                  style={{ color: 'var(--accent-primary)', background: 'var(--accent-primary-soft)' }}
+                >
+                  <Sparkles size={12} />
+                  Try with sample document
+                </button>
+              </div>
+            )}
           </motion.div>
         ) : (
           <motion.div
