@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { Shield, Loader2, Columns2, FileText, Files, ChevronRight, Check, Download, SkipForward, Cpu, Eye, Lock, Smartphone } from 'lucide-react';
+import { Loader2, Columns2, FileText, Files, ChevronRight, Check, Download, SkipForward, Cpu, Eye, Lock, Smartphone } from 'lucide-react';
 import { DropZone } from './components/DropZone';
 import { DocumentViewer } from './components/DocumentViewer';
 import { PDFPageViewer } from './components/PDFPageViewer';
@@ -514,12 +514,19 @@ const App: React.FC = () => {
         }}
       >
         <div className="flex items-center gap-3">
-          <div
-            className="w-8 h-8 rounded-lg flex items-center justify-center"
-            style={{ background: 'var(--accent-primary-soft)' }}
-          >
-            <Shield size={18} style={{ color: 'var(--accent-primary)' }} />
-          </div>
+          <svg width="32" height="32" viewBox="0 0 32 32" className="flex-shrink-0">
+            <defs>
+              <linearGradient id="logo-g" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="var(--accent-primary)" />
+                <stop offset="100%" stopColor="#5B3FD4" />
+              </linearGradient>
+            </defs>
+            <rect width="32" height="32" rx="8" fill="url(#logo-g)" />
+            <rect x="7" y="8" width="18" height="3" rx="1.5" fill="white" opacity="0.9" />
+            <rect x="7" y="14" width="14" height="3" rx="1.5" fill="white" opacity="0.9" />
+            <rect x="7" y="20" width="10" height="3" rx="1.5" fill="#1a1a2e" />
+            <rect x="19" y="20" width="6" height="3" rx="1.5" fill="#1a1a2e" />
+          </svg>
           <h1
             className="text-lg font-bold"
             style={{ fontFamily: "'Space Grotesk', system-ui, sans-serif", color: 'var(--ink-primary)' }}
@@ -1238,8 +1245,8 @@ const App: React.FC = () => {
             href="https://mmostagirbhuiyan.com"
             target="_blank"
             rel="noopener noreferrer"
-            className="transition-colors"
-            style={{ color: 'var(--ink-tertiary)' }}
+            className="underline underline-offset-2 hover:opacity-80 transition-opacity"
+            style={{ color: 'var(--ink-secondary)' }}
           >
             Mostagir Bhuiyan
           </a>
