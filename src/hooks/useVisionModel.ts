@@ -54,6 +54,15 @@ interface ChatMessage {
   content: Array<{ type: string; text?: string; image?: HFRawImage }>;
 }
 
+// Scale for rendering PDF pages to canvas for vision input.
+// Lower than RENDER_SCALE (3) in pdf-redactor since we need speed, not print quality.
+const VISION_RENDER_SCALE = 1.5;
+
+export interface VisionPageResult {
+  pageIndex: number;
+  text: string;
+}
+
 export function useVisionModel() {
   const [state, setState] = useState<VisionModelState>({
     loading: false,
@@ -65,6 +74,7 @@ export function useVisionModel() {
   const processorRef = useRef<HFProcessor | null>(null);
   const modelRef = useRef<HFModel | null>(null);
   const supportedRef = useRef<boolean | null>(null);
+  const [extractionProgress, setExtractionProgress] = useState<{ current: number; total: number } | null>(null);
 
   // Check support on mount — same mobile blocking as useNERModel
   useEffect(() => {
@@ -200,5 +210,45 @@ export function useVisionModel() {
     return output.trim();
   }, []);
 
-  return { ...state, loadModel, extractText };
+  /**
+   * Render PDF pages to offscreen canvases and extract text via SmolVLM.
+   * Processes pages sequentially (GPU constraint). Returns per-page text results
+   * and combined full text suitable for feeding into the PII detection pipeline.
+   */
+  const extractPDFPages = useCallback(async (
+    pdfDoc: { getPage: (num: number) => Promise<{ getViewport: (opts: { scale: number }) => { width: number; height: number }; render: (opts: { canvasContext: CanvasRenderingContext2D; viewport: { width: number; height: number } }) => { promise: Promise<void> } }> },
+    pageIndices: number[],
+  ): Promise<{ pages: VisionPageResult[]; fullText: string }> => {
+    const results: VisionPageResult[] = [];
+    setExtractionProgress({ current: 0, total: pageIndices.length });
+
+    for (let i = 0; i < pageIndices.length; i++) {
+      const pageIdx = pageIndices[i];
+      setExtractionProgress({ current: i + 1, total: pageIndices.length });
+
+      // Render page to offscreen canvas
+      const page = await pdfDoc.getPage(pageIdx + 1); // pdfjs is 1-indexed
+      const viewport = page.getViewport({ scale: VISION_RENDER_SCALE });
+
+      const canvas = document.createElement('canvas');
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      const ctx = canvas.getContext('2d')!;
+
+      await page.render({ canvasContext: ctx, viewport }).promise;
+
+      console.log(`[SmolVLM] Extracting text from page ${pageIdx + 1}...`);
+      const pageText = await extractText(canvas);
+      console.log(`[SmolVLM] Page ${pageIdx + 1} text (${pageText.length} chars):`, pageText.slice(0, 200));
+
+      results.push({ pageIndex: pageIdx, text: pageText });
+    }
+
+    setExtractionProgress(null);
+
+    const fullText = results.map(r => r.text).join('\n\n');
+    return { pages: results, fullText };
+  }, [extractText]);
+
+  return { ...state, loadModel, extractText, extractPDFPages, extractionProgress };
 }
