@@ -893,7 +893,17 @@ const App: React.FC = () => {
                     </div>
 
                     <p className="text-xs mt-3" style={{ color: 'var(--ink-faint)' }}>
-                      First load may take a minute. Cached for future use.
+                      Downloading{' '}
+                      <a
+                        href="https://huggingface.co/mlc-ai/Qwen3-4B-q4f16_1-MLC"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="underline underline-offset-2"
+                        style={{ color: 'var(--ink-tertiary)' }}
+                      >
+                        Qwen3-4B
+                      </a>
+                      {' '}(Apache 2.0) via WebGPU. Runs locally, never sent to a server.
                     </p>
                   </div>
                 </div>
@@ -1238,6 +1248,14 @@ const App: React.FC = () => {
       <footer className="text-center py-8 space-y-1">
         <p className="text-xs" style={{ color: 'var(--ink-faint)' }}>
           100% client-side. Zero data leaves your browser.
+        </p>
+        <p className="text-xs" style={{ color: 'var(--ink-faint)' }}>
+          Powered by{' '}
+          <a href="https://huggingface.co/mlc-ai/Qwen3-4B-q4f16_1-MLC" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2" style={{ color: 'var(--ink-tertiary)' }}>Qwen3-4B</a>
+          {' '}&middot;{' '}
+          <a href="https://github.com/naptha/tesseract.js" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2" style={{ color: 'var(--ink-tertiary)' }}>Tesseract.js</a>
+          {' '}&middot;{' '}
+          <a href="https://github.com/mlc-ai/web-llm" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2" style={{ color: 'var(--ink-tertiary)' }}>WebLLM</a>
         </p>
         <p className="text-xs" style={{ color: 'var(--ink-faint)' }}>
           Built by{' '}
