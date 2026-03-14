@@ -55,6 +55,10 @@ export function useOCR() {
           }
         },
       });
+      // Set parameters for better accuracy on scanned documents
+      await worker.setParameters({
+        user_defined_dpi: '300',
+      });
       workerRef.current = worker;
       setState({ loading: false, ready: true, progress: 100, error: null });
     } catch (err) {
@@ -73,8 +77,7 @@ export function useOCR() {
 
     // Pass { blocks: true } as output format — tesseract.js v7 defaults blocks to false,
     // which means blocks/paragraphs/lines/words are all null without this flag.
-    // Use rotateAuto to handle rotated scans.
-    const result = await worker.recognize(canvas, { rotateAuto: true }, { blocks: true });
+    const result = await worker.recognize(canvas, {}, { blocks: true });
 
     const words: OCRWord[] = [];
     const cleanLines: string[] = [];

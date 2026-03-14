@@ -167,9 +167,28 @@ function mergeBoxes(boxes: BoundingBox[]): BoundingBox[] {
 }
 
 /**
+ * Levenshtein edit distance between two strings.
+ */
+function editDistance(a: string, b: string): number {
+  const m = a.length, n = b.length;
+  let prev = new Array(n + 1);
+  let curr = new Array(n + 1);
+  for (let j = 0; j <= n; j++) prev[j] = j;
+  for (let i = 1; i <= m; i++) {
+    curr[0] = i;
+    for (let j = 1; j <= n; j++) {
+      if (a[i - 1] === b[j - 1]) curr[j] = prev[j - 1];
+      else curr[j] = 1 + Math.min(prev[j - 1], prev[j], curr[j - 1]);
+    }
+    [prev, curr] = [curr, prev];
+  }
+  return prev[n];
+}
+
+/**
  * Find bounding boxes for an entity's text within OCR word results.
  * OCR words have bounding boxes in PDF points (already scaled from canvas pixels).
- * Searches for consecutive word sequences matching the entity text.
+ * Uses exact matching, containment, substring, and edit-distance near-matching.
  */
 function findOCRTextBounds(
   entityText: string,
@@ -179,80 +198,77 @@ function findOCRTextBounds(
   const entityLower = entityText.toLowerCase().trim();
   if (!entityLower || ocrWords.length === 0) return boxes;
 
-  // Build running text from OCR words to find entity spans
   const wordTexts = ocrWords.map(w => w.text.trim()).filter(t => t.length > 0);
   const wordsClean = ocrWords.filter(w => w.text.trim().length > 0);
+  const entityWords = entityLower.split(/\s+/).filter(w => w.length > 0);
 
-  // Try sliding window of concatenated words
+  const addWordBoxes = (start: number, end: number) => {
+    for (let k = start; k <= end; k++) {
+      const w = wordsClean[k];
+      boxes.push({
+        pageIndex: 0,
+        x: w.bbox.x0,
+        y: w.bbox.y0,
+        width: w.bbox.x1 - w.bbox.x0,
+        height: w.bbox.y1 - w.bbox.y0,
+      });
+    }
+  };
+
+  // 1. Exact match: concatenated OCR words === entity text
   for (let start = 0; start < wordsClean.length; start++) {
     let concat = '';
     for (let end = start; end < wordsClean.length; end++) {
       if (end > start) concat += ' ';
       concat += wordTexts[end];
-
-      const concatLower = concat.toLowerCase();
-
-      // Exact match
-      if (concatLower === entityLower) {
-        for (let k = start; k <= end; k++) {
-          const w = wordsClean[k];
-          boxes.push({
-            pageIndex: 0,
-            x: w.bbox.x0,
-            y: w.bbox.y0,
-            width: w.bbox.x1 - w.bbox.x0,
-            height: w.bbox.y1 - w.bbox.y0,
-          });
-        }
-        break;
+      if (concat.toLowerCase() === entityLower) {
+        addWordBoxes(start, end);
+        return mergeBoxes(boxes);
       }
-
-      // If we've gone past the entity length, stop extending
-      if (concatLower.length > entityLower.length + 10) break;
+      if (concat.length > entityLower.length + 10) break;
     }
   }
 
-  // Also try single-word containment for entities that appear within a word
-  // (e.g., email addresses, SSNs that Tesseract may keep as one token)
-  if (boxes.length === 0) {
-    for (const w of wordsClean) {
-      if (w.text.toLowerCase().includes(entityLower)) {
-        boxes.push({
-          pageIndex: 0,
-          x: w.bbox.x0,
-          y: w.bbox.y0,
-          width: w.bbox.x1 - w.bbox.x0,
-          height: w.bbox.y1 - w.bbox.y0,
-        });
-      }
+  // 2. Single-word containment (email, SSN as one token)
+  for (const w of wordsClean) {
+    if (w.text.toLowerCase().includes(entityLower)) {
+      boxes.push({ pageIndex: 0, x: w.bbox.x0, y: w.bbox.y0,
+        width: w.bbox.x1 - w.bbox.x0, height: w.bbox.y1 - w.bbox.y0 });
+    }
+  }
+  if (boxes.length > 0) return mergeBoxes(boxes);
+
+  // 3. Near-match: compare entity words against consecutive OCR words using
+  //    edit distance. Handles LLM hallucinating slightly different text
+  //    (e.g., "BHUICYAN" vs OCR's "BHUIYAN").
+  for (let si = 0; si <= wordsClean.length - entityWords.length; si++) {
+    let allMatch = true;
+    let totalDist = 0;
+    for (let ei = 0; ei < entityWords.length; ei++) {
+      const sw = wordTexts[si + ei].toLowerCase();
+      const ew = entityWords[ei];
+      const dist = editDistance(sw, ew);
+      const maxDist = Math.max(2, Math.ceil(ew.length * 0.3));
+      if (dist > maxDist) { allMatch = false; break; }
+      totalDist += dist;
+    }
+    if (allMatch && totalDist <= Math.max(3, Math.ceil(entityLower.length * 0.2))) {
+      addWordBoxes(si, si + entityWords.length - 1);
+      return mergeBoxes(boxes);
     }
   }
 
-  // Fuzzy: try checking if entity is a substring of concatenated neighbors
-  if (boxes.length === 0) {
-    for (let start = 0; start < wordsClean.length; start++) {
-      let concat = '';
-      for (let end = start; end < Math.min(start + 10, wordsClean.length); end++) {
-        if (end > start) concat += ' ';
-        concat += wordTexts[end];
-
-        if (concat.toLowerCase().includes(entityLower)) {
-          for (let k = start; k <= end; k++) {
-            const w = wordsClean[k];
-            boxes.push({
-              pageIndex: 0,
-              x: w.bbox.x0,
-              y: w.bbox.y0,
-              width: w.bbox.x1 - w.bbox.x0,
-              height: w.bbox.y1 - w.bbox.y0,
-            });
-          }
-          break;
-        }
-
-        if (concat.length > entityLower.length + 20) break;
+  // 4. Substring: entity is contained within concatenated neighbors
+  for (let start = 0; start < wordsClean.length; start++) {
+    let concat = '';
+    for (let end = start; end < Math.min(start + 10, wordsClean.length); end++) {
+      if (end > start) concat += ' ';
+      concat += wordTexts[end];
+      if (concat.toLowerCase().includes(entityLower)) {
+        addWordBoxes(start, end);
+        return mergeBoxes(boxes);
       }
-      if (boxes.length > 0) break;
+      if (concat.length > entityLower.length + 20) break;
     }
   }
 

@@ -138,6 +138,31 @@ function normalizeWS(s: string): string {
 }
 
 /**
+ * Levenshtein edit distance between two strings.
+ * Counts minimum insertions, deletions, and substitutions needed.
+ */
+function editDistance(a: string, b: string): number {
+  const m = a.length;
+  const n = b.length;
+  // Use single-row optimization for memory efficiency
+  let prev = new Array(n + 1);
+  let curr = new Array(n + 1);
+  for (let j = 0; j <= n; j++) prev[j] = j;
+  for (let i = 1; i <= m; i++) {
+    curr[0] = i;
+    for (let j = 1; j <= n; j++) {
+      if (a[i - 1] === b[j - 1]) {
+        curr[j] = prev[j - 1];
+      } else {
+        curr[j] = 1 + Math.min(prev[j - 1], prev[j], curr[j - 1]);
+      }
+    }
+    [prev, curr] = [curr, prev];
+  }
+  return prev[n];
+}
+
+/**
  * Find all occurrences of entity text in source, with fuzzy whitespace matching.
  * PDF text extraction often produces different spacing than what the LLM sees,
  * so we normalize whitespace for comparison but return the actual source positions.
@@ -200,6 +225,57 @@ function findEntityPositions(
       }
     }
     searchFrom = idx + 1;
+  }
+
+  if (positions.length > 0) return positions;
+
+  // Near-match fallback for OCR text: the LLM may return entity text with
+  // 1-2 character differences from OCR source (e.g., "BHUICYAN" vs "BHUIYAN").
+  // Compare entity words against consecutive source words using edit distance.
+  if (normalizedEntity.length >= 4) {
+    const wordRe = /\S+/g;
+    const sourceWords: { text: string; start: number; end: number }[] = [];
+    let wm;
+    while ((wm = wordRe.exec(sourceText)) !== null) {
+      sourceWords.push({ text: wm[0], start: wm.index, end: wm.index + wm[0].length });
+    }
+
+    const entityWordList = normalizedEntity.split(' ');
+    // Debug: find source words close to any entity word
+    for (const ew of entityWordList) {
+      const close = sourceWords.filter(sw => editDistance(sw.text.toLowerCase(), ew) <= 3);
+      if (close.length > 0) {
+        console.log(`[LLM] Near-match candidates for "${ew}":`, close.map(w => `"${w.text}"(d=${editDistance(w.text.toLowerCase(), ew)})`));
+      } else {
+        console.log(`[LLM] No near-match for "${ew}" in ${sourceWords.length} source words`);
+      }
+    }
+
+    for (let si = 0; si <= sourceWords.length - entityWordList.length; si++) {
+      let totalDiffs = 0;
+      let allMatched = true;
+      for (let ei = 0; ei < entityWordList.length; ei++) {
+        const sw = sourceWords[si + ei].text.toLowerCase();
+        const ew = entityWordList[ei];
+        const diffs = editDistance(sw, ew);
+        const maxWordDiffs = Math.max(2, Math.ceil(ew.length * 0.25));
+        if (diffs > maxWordDiffs) {
+          allMatched = false;
+          break;
+        }
+        totalDiffs += diffs;
+      }
+
+      if (allMatched && totalDiffs > 0) {
+        const matchStart = sourceWords[si].start;
+        const matchEnd = sourceWords[si + entityWordList.length - 1].end;
+        const rangeKey = `${matchStart}-${matchEnd}`;
+        if (!existingRanges.has(rangeKey)) {
+          positions.push({ start: matchStart, end: matchEnd, matchType: 'fuzzy' });
+          return positions;
+        }
+      }
+    }
   }
 
   return positions;
@@ -416,6 +492,13 @@ export function useNERModel() {
 
           if (positions.length === 0) {
             console.warn('[LLM] Entity not found in source text:', JSON.stringify(entity));
+            // Debug: show what source words exist near the entity
+            const ew = entity.text.toLowerCase().split(/\s+/);
+            const sw = text.toLowerCase().split(/\s+/).filter(w => w.length >= 3);
+            const nearMatches = sw.filter(w => ew.some(e => editDistance(w, e) <= 2));
+            if (nearMatches.length > 0) {
+              console.log('[LLM] Near-matches in source:', nearMatches, 'for entity words:', ew);
+            }
           }
 
           for (const pos of positions) {
