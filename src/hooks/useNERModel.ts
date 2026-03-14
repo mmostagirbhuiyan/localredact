@@ -57,6 +57,15 @@ function detectIOSDevice(): boolean {
   return isIOS || isIPadOS13Plus;
 }
 
+function detectMobile(): boolean {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  const mobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|mobile|CriOS/i;
+  const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  const isSmallScreen = window.innerWidth <= 768;
+  return mobileUA.test(ua) || (isTouchDevice && isSmallScreen);
+}
+
 function mapLLMType(type: string): EntityCategory | null {
   const normalized = type.toUpperCase().trim();
   switch (normalized) {
@@ -211,16 +220,19 @@ export function useNERModel() {
   const detectingRef = useRef(false);
   const [inferenceProgress, setInferenceProgress] = useState<{ current: number; total: number } | null>(null);
 
-  // Check support on mount
+  // Check support on mount — block all mobile devices (model is ~2.5GB, needs desktop GPU)
   useEffect(() => {
     const hasWebGPU = checkWebGPUSupport();
     const isIOS = detectIOSDevice();
-    supportedRef.current = hasWebGPU && !isIOS;
+    const isMobile = detectMobile();
+    supportedRef.current = hasWebGPU && !isMobile;
 
-    if (!hasWebGPU) {
+    if (isIOS) {
+      setState(prev => ({ ...prev, error: 'AI detection is not available on iPhone/iPad. Safari\'s WebGPU has known issues that cause crashes. Use a desktop browser instead.' }));
+    } else if (isMobile) {
+      setState(prev => ({ ...prev, error: 'AI detection requires a desktop browser. The model is too large (~2.5GB) for mobile devices.' }));
+    } else if (!hasWebGPU) {
       setState(prev => ({ ...prev, error: 'WebGPU not available. AI detection requires Chrome 113+, Edge 113+, or Safari 17+.' }));
-    } else if (isIOS) {
-      setState(prev => ({ ...prev, error: 'AI detection not available on iOS due to WebGPU limitations.' }));
     }
   }, []);
 
