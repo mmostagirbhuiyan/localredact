@@ -241,16 +241,6 @@ function findEntityPositions(
     }
 
     const entityWordList = normalizedEntity.split(' ');
-    // Debug: find source words close to any entity word
-    for (const ew of entityWordList) {
-      const close = sourceWords.filter(sw => editDistance(sw.text.toLowerCase(), ew) <= 3);
-      if (close.length > 0) {
-        console.log(`[LLM] Near-match candidates for "${ew}":`, close.map(w => `"${w.text}"(d=${editDistance(w.text.toLowerCase(), ew)})`));
-      } else {
-        console.log(`[LLM] No near-match for "${ew}" in ${sourceWords.length} source words`);
-      }
-    }
-
     for (let si = 0; si <= sourceWords.length - entityWordList.length; si++) {
       let totalDiffs = 0;
       let allMatched = true;
@@ -492,13 +482,6 @@ export function useNERModel() {
 
           if (positions.length === 0) {
             console.warn('[LLM] Entity not found in source text:', JSON.stringify(entity));
-            // Debug: show what source words exist near the entity
-            const ew = entity.text.toLowerCase().split(/\s+/);
-            const sw = text.toLowerCase().split(/\s+/).filter(w => w.length >= 3);
-            const nearMatches = sw.filter(w => ew.some(e => editDistance(w, e) <= 2));
-            if (nearMatches.length > 0) {
-              console.log('[LLM] Near-matches in source:', nearMatches, 'for entity words:', ew);
-            }
           }
 
           for (const pos of positions) {

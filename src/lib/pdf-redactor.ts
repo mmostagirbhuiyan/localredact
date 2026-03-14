@@ -455,7 +455,6 @@ export async function createRedactedPDF(
       console.log(`[LocalRedact] Page ${i + 1}: OCR has ${ocrPage.words.length} words. Mapping ${accepted.length} accepted entities...`);
       for (const entity of accepted) {
         const entityBoxes = findOCRTextBounds(entity.text, ocrPage.words);
-        console.log(`[LocalRedact]   Entity "${entity.text}" (${entity.category}): ${entityBoxes.length} boxes found`);
         for (const box of entityBoxes) {
           box.pageIndex = i;
           ocrBoxes.push(box);

@@ -8,7 +8,7 @@
 |-------|-------------|--------|
 | 1 | Detection Engine (WebLLM + Qwen3-4B) | **COMPLETE** |
 | 2 | True PDF Redaction (render-to-image) | **COMPLETE** |
-| 3 | Vision Model Fallback (SmolVLM) | Not started |
+| 3 | OCR Fallback (Tesseract.js) | **COMPLETE** |
 | 4 | UX Polish | **COMPLETE** |
 
 ---
@@ -41,7 +41,7 @@ Two-phase pipeline: regex (instant) + WebLLM LLM (lazy-loaded via WebGPU).
 - [x] LLM inference progress bar ("AI scanning text — Chunk X of Y")
 
 ### 1.5 Dependency Cleanup
-- [ ] Remove `@huggingface/transformers` (deferred — needed for Phase 3 SmolVLM)
+- [ ] Remove `@huggingface/transformers` (no longer needed — SmolVLM replaced by Tesseract.js)
 
 ---
 
@@ -67,24 +67,30 @@ Render-to-image pipeline. Content destruction, not visual overlay.
 
 ---
 
-## Phase 3: Vision Model Fallback — NOT STARTED
+## Phase 3: OCR Fallback (Tesseract.js) — COMPLETE
 
-For PDFs where text extraction fails: scanned docs, letter-spacing artifacts, image-heavy layouts.
+For PDFs where text extraction fails: scanned docs, image-only PDFs, photographed documents.
 
-### 3.1 SmolVLM-256M Integration
-- [x] Load SmolVLM-256M via Transformers.js with WebGPU
-- [x] Per page: render to canvas → vision model → structured text
-- [x] Auto-trigger on low text quality (high single-char item ratio)
-- [ ] Feed vision output into existing two-phase detection pipeline
+### 3.1 Tesseract.js OCR Integration — DONE
+- [x] Tesseract.js v7 WASM+WebWorker (CPU-based, no GPU conflict with Qwen3-4B)
+- [x] Per page: render to canvas at 4x scale (~300 DPI) → gamma preprocessing → OCR
+- [x] Word-level bounding boxes for targeted redaction (not full-page blackout)
+- [x] Auto-trigger on low text quality (score=0 = scanned/image-only page)
+- [x] `{ blocks: true }` output format (v7 defaults to text-only without it)
+- [x] `user_defined_dpi: '300'` (prevents Tesseract DPI guessing)
 
-### 3.2 Vision-Based PII Verification
-- [ ] Post-detection scan: render page without redaction boxes
-- [ ] SmolVLM checks for PII that text extraction missed
-- [ ] Catches: PII in images, watermarks, graphic-rendered text, stamps
+### 3.2 OCR-to-Redaction Pipeline — DONE
+- [x] OCR text fed into regex + LLM detection pipeline (same as text PDFs)
+- [x] OCR word bboxes passed through PDFPageViewer → PDFPageCanvas for review overlays
+- [x] `findOCRTextBounds` maps entities to OCR word bounding boxes
+- [x] Edit-distance (Levenshtein) matching for LLM text vs OCR text near-misses
+- [x] `createRedactedPDF` accepts optional OCR results per page
 
-### 3.3 SmolDocling (Optional)
-- [ ] Document-to-structured-text for complex layouts (tables, multi-column)
-- [ ] Evaluate after SmolVLM — may be redundant
+### 3.3 Dead Approaches
+- SmolVLM-256M: no bounding boxes, too small, wrong API. Replaced by Tesseract.js.
+- Otsu binarization: too aggressive on watermarked docs. Gamma contrast works.
+- cleanText filtering: dropped real PII. Use raw OCR text.
+- preserve_interword_spaces: doubled word count with noise.
 
 ---
 
@@ -124,10 +130,11 @@ Todo:
 
 ## Models
 
-| Model | Purpose | Size | Status |
+| Model/Engine | Purpose | Size | Status |
 |-------|---------|------|--------|
-| Qwen3-4B (q4f16) | PII extraction | ~2.5GB | **Active** |
-| SmolVLM-256M | Vision fallback | ~256MB | Phase 3 |
+| Qwen3-4B (q4f16) | PII extraction | ~2.5GB | **Active** (WebGPU) |
+| Tesseract.js v7 | OCR fallback | ~3-5MB | **Active** (WASM+WebWorker) |
+| SmolVLM-256M | Vision fallback | ~256MB | Replaced (no bboxes, too small) |
 | gemma-2-2b-it | PII extraction | ~830MB | Replaced (empty results on dense docs) |
 | Llama 3.2 1B/3B | PII extraction | ~500MB/1.5GB | Rejected (safety refusal) |
 
@@ -147,6 +154,10 @@ These were tried and failed. Do NOT retry them:
 - **Example entities in prompt**: Causes hallucination across documents.
 - **Concurrent WebLLM detect() calls**: Corrupts GPU buffer state. Must serialize with mutex.
 - **Confidence field in LLM prompt**: Adding `"confidence":0.95` to the output format distracted Qwen3-4B — missed addresses and names on dense PDFs. Compute confidence from match quality instead (exact=0.95, fuzzy=0.80).
+- **SmolVLM-256M for OCR**: Returns plain text only — no bounding boxes for targeted redaction. Too small (256M) to reliably extract names from passports. Wrong `batch_decode` API. Replaced by Tesseract.js.
+- **Otsu binarization for OCR preprocessing**: Too aggressive on passport watermarks/holograms. Wipes out real text along with background. Gamma contrast stretch works better.
+- **cleanText filtering (confidence-based)**: Filtering OCR lines by avg word confidence drops real PII mixed with low-confidence noise. Send raw OCR text to LLM instead.
+- **preserve_interword_spaces for Tesseract**: Doubles word count with inserted spaces, breaks regex patterns and LLM entity matching.
 
 ## References
 
