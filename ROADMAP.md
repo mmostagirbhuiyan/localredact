@@ -74,7 +74,7 @@ For PDFs where text extraction fails: scanned docs, letter-spacing artifacts, im
 ### 3.1 SmolVLM-256M Integration
 - [x] Load SmolVLM-256M via Transformers.js with WebGPU
 - [x] Per page: render to canvas → vision model → structured text
-- [ ] Auto-trigger on low text quality (high single-char item ratio)
+- [x] Auto-trigger on low text quality (high single-char item ratio)
 - [ ] Feed vision output into existing two-phase detection pipeline
 
 ### 3.2 Vision-Based PII Verification
