@@ -7,7 +7,7 @@ describe('DropZone', () => {
     render(
       <DropZone onFileSelect={vi.fn()} onTextPaste={vi.fn()} loading={false} />,
     );
-    expect(screen.getByText('Drop a PDF here')).toBeInTheDocument();
+    expect(screen.getByText('Drop PDFs here')).toBeInTheDocument();
   });
 
   it('switches to paste mode when clicking Paste Text tab', async () => {
@@ -59,10 +59,10 @@ describe('DropZone', () => {
     expect(input.className).toContain('hidden');
   });
 
-  it('shows privacy message', () => {
+  it('shows batch processing hint', () => {
     const { container } = render(
       <DropZone onFileSelect={vi.fn()} onTextPaste={vi.fn()} loading={false} />,
     );
-    expect(container.textContent).toContain('never leaves your browser');
+    expect(container.textContent).toContain('Drop multiple files for batch processing');
   });
 });

@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
 import type { TextItem } from 'pdfjs-dist/types/src/display/api';
+import { assessDocumentTextQuality, type TextQuality } from '../lib/text-quality';
 
 // Use the bundled worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
@@ -24,6 +25,12 @@ interface PDFParserState {
   fileName: string | null;
   pages: PDFPageInfo[];
   isPDF: boolean;
+  textQuality: {
+    pageQualities: TextQuality[];
+    pagesNeedingVision: number[];
+    overallScore: number;
+    needsVision: boolean;
+  } | null;
 }
 
 /**
@@ -99,12 +106,13 @@ export function usePDFParser() {
     fileName: null,
     pages: [],
     isPDF: false,
+    textQuality: null,
   });
 
   const pdfDocRef = useRef<pdfjsLib.PDFDocumentProxy | null>(null);
 
   const parseFile = useCallback(async (file: File) => {
-    setState({ text: null, loading: true, error: null, fileName: file.name, pages: [], isPDF: true });
+    setState({ text: null, loading: true, error: null, fileName: file.name, pages: [], isPDF: true, textQuality: null });
 
     try {
       const arrayBuffer = await file.arrayBuffer();
@@ -143,7 +151,21 @@ export function usePDFParser() {
       }
 
       const fullText = normalizeSpacing(pageTexts.join('\n\n'));
-      setState({ text: fullText, loading: false, error: null, fileName: file.name, pages: pageInfos, isPDF: true });
+
+      // Assess text extraction quality to determine if vision fallback is needed
+      const textQuality = assessDocumentTextQuality(pageInfos);
+      if (textQuality.needsVision) {
+        console.log(
+          `[PDFParser] Low text quality detected (score: ${textQuality.overallScore}).`,
+          `Pages needing vision: ${textQuality.pagesNeedingVision.map(i => i + 1).join(', ')}`,
+        );
+        for (const idx of textQuality.pagesNeedingVision) {
+          const q = textQuality.pageQualities[idx];
+          console.log(`  Page ${idx + 1}: score=${q.score}, reason=${q.reason}`);
+        }
+      }
+
+      setState({ text: fullText, loading: false, error: null, fileName: file.name, pages: pageInfos, isPDF: true, textQuality });
     } catch (err) {
       setState({
         text: null,
@@ -152,18 +174,19 @@ export function usePDFParser() {
         fileName: file.name,
         pages: [],
         isPDF: false,
+        textQuality: null,
       });
     }
   }, []);
 
   const setText = useCallback((text: string) => {
     pdfDocRef.current = null;
-    setState({ text, loading: false, error: null, fileName: null, pages: [], isPDF: false });
+    setState({ text, loading: false, error: null, fileName: null, pages: [], isPDF: false, textQuality: null });
   }, []);
 
   const reset = useCallback(() => {
     pdfDocRef.current = null;
-    setState({ text: null, loading: false, error: null, fileName: null, pages: [], isPDF: false });
+    setState({ text: null, loading: false, error: null, fileName: null, pages: [], isPDF: false, textQuality: null });
   }, []);
 
   /**
