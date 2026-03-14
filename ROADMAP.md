@@ -40,8 +40,8 @@ Two-phase pipeline: regex (instant) + WebLLM LLM (lazy-loaded via WebGPU).
 - [x] Chunk navigation (clickable numbered buttons per chunk)
 - [x] LLM inference progress bar ("AI scanning text — Chunk X of Y")
 
-### 1.5 Dependency Cleanup
-- [ ] Remove `@huggingface/transformers` (no longer needed — SmolVLM replaced by Tesseract.js)
+### 1.5 Dependency Cleanup — DONE
+- [x] Remove `@huggingface/transformers` (SmolVLM replaced by Tesseract.js)
 
 ---
 

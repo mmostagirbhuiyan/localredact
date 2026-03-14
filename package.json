@@ -11,7 +11,6 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@huggingface/transformers": "^3.8.1",
     "@mlc-ai/web-llm": "^0.2.81",
     "framer-motion": "^12.15.0",
     "lucide-react": "^0.511.0",
