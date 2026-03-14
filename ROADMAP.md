@@ -72,7 +72,7 @@ Render-to-image pipeline. Content destruction, not visual overlay.
 For PDFs where text extraction fails: scanned docs, letter-spacing artifacts, image-heavy layouts.
 
 ### 3.1 SmolVLM-256M Integration
-- [ ] Load SmolVLM-256M via Transformers.js with WebGPU
+- [x] Load SmolVLM-256M via Transformers.js with WebGPU
 - [ ] Per page: render to canvas → vision model → structured text
 - [ ] Auto-trigger on low text quality (high single-char item ratio)
 - [ ] Feed vision output into existing two-phase detection pipeline
