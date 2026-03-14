@@ -112,7 +112,7 @@ const App: React.FC = () => {
         // Store OCR results for coordinate mapping during redaction
         setOcrResults(ocrPages);
 
-        // Build combined text: use OCR text for flagged pages, pdfjs text for others
+        // Build combined text from OCR raw output for detection
         const pageTexts: string[] = [];
         for (let i = 0; i < pdf.pages.length; i++) {
           const ocrPage = ocrPages.find(op => op.pageIndex === i);
@@ -127,7 +127,6 @@ const App: React.FC = () => {
 
         const combined = pageTexts.join('\n\n');
         console.log(`[OCR] Combined text ready (${combined.length} chars). Re-running detection.`);
-        console.log(`[OCR] Extracted text:\n`, combined);
         setVisionText(combined);
 
         // Re-run regex on the OCR-improved text

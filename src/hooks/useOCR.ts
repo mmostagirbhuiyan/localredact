@@ -9,8 +9,9 @@ export interface OCRWord {
 
 export interface OCRPageResult {
   pageIndex: number;
-  text: string;
-  words: OCRWord[];
+  text: string;           // raw OCR text (all words)
+  cleanText: string;      // filtered text (high-confidence lines only, for LLM)
+  words: OCRWord[];       // all words with bboxes (for coordinate mapping)
 }
 
 interface OCRState {
@@ -72,9 +73,12 @@ export function useOCR() {
 
     // Pass { blocks: true } as output format — tesseract.js v7 defaults blocks to false,
     // which means blocks/paragraphs/lines/words are all null without this flag.
-    const result = await worker.recognize(canvas, {}, { blocks: true });
+    // Use rotateAuto to handle rotated scans.
+    const result = await worker.recognize(canvas, { rotateAuto: true }, { blocks: true });
 
     const words: OCRWord[] = [];
+    const cleanLines: string[] = [];
+
     if (result.data.blocks) {
       for (const block of result.data.blocks) {
         for (const para of block.paragraphs) {
@@ -86,14 +90,25 @@ export function useOCR() {
                 confidence: w.confidence / 100,
               });
             }
+            // Only include lines where the average word confidence is decent.
+            // Low-confidence lines are watermarks, holograms, background noise.
+            if (line.words.length > 0) {
+              const avgConf = line.words.reduce((s, w) => s + w.confidence, 0) / line.words.length;
+              if (avgConf >= 50) {
+                cleanLines.push(line.text.trim());
+              }
+            }
           }
         }
       }
     }
 
+    const cleanText = cleanLines.filter(l => l.length > 0).join('\n');
+
     return {
       pageIndex: 0,
       text: result.data.text,
+      cleanText,
       words,
     };
   }, []);
@@ -121,11 +136,9 @@ export function useOCR() {
 
       // Preprocess: convert to grayscale with contrast enhancement.
       // Scanned documents with watermarks, holograms, or gradient backgrounds
-      // produce garbage OCR without this step. We use grayscale + contrast stretch
-      // rather than hard binarization to preserve text detail.
+      // produce garbage OCR without this step.
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const pixels = imageData.data;
-      // First pass: find min/max luminance for contrast stretching
       let minL = 255, maxL = 0;
       for (let p = 0; p < pixels.length; p += 4) {
         const gray = 0.299 * pixels[p] + 0.587 * pixels[p + 1] + 0.114 * pixels[p + 2];
@@ -133,10 +146,8 @@ export function useOCR() {
         if (gray > maxL) maxL = gray;
       }
       const range = maxL - minL || 1;
-      // Second pass: grayscale + contrast stretch
       for (let p = 0; p < pixels.length; p += 4) {
         const gray = 0.299 * pixels[p] + 0.587 * pixels[p + 1] + 0.114 * pixels[p + 2];
-        // Stretch to full 0-255 range, then apply gamma to darken text
         const stretched = ((gray - minL) / range) * 255;
         const gamma = stretched < 128 ? stretched * 0.6 : Math.min(255, stretched * 1.3);
         pixels[p] = gamma;
