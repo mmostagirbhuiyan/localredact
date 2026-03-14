@@ -754,8 +754,8 @@ const App: React.FC = () => {
                 <span style={{ color: 'var(--accent-primary)' }}>Entirely in your browser.</span>
               </h2>
               <p className="text-base mb-8" style={{ color: 'var(--ink-secondary)' }}>
-                AI-powered PII detection and redaction. No uploads, no servers, no tracking.
-                Your document never leaves your device.
+                Edge AI redaction — the model runs on your device, not in the cloud.
+                No uploads. No servers. Your document never leaves your browser.
               </p>
 
               {/* Differentiators */}
@@ -770,7 +770,7 @@ const App: React.FC = () => {
                   <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: 'var(--accent-primary-soft)' }}>
                     <Cpu size={14} style={{ color: 'var(--accent-primary)' }} />
                   </div>
-                  <span>On-device AI (WebGPU)</span>
+                  <span>Edge AI — runs on your GPU</span>
                 </div>
                 <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--ink-tertiary)' }}>
                   <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: 'var(--accent-primary-soft)' }}>
