@@ -19,7 +19,7 @@ Hosted on Cloudflare Pages (static). See ROADMAP.md for full v2 implementation p
 Vite | React 18 | TypeScript | Tailwind CSS v4 (PostCSS) | @mlc-ai/web-llm (WebGPU LLM inference)
 pdfjs-dist | pdf-lib | tesseract.js | lucide-react | framer-motion
 Active model: Qwen3-4B-q4f16_1-MLC (PII extraction, ~2.5GB, WebGPU). Tesseract.js (OCR fallback, WASM+WebWorker)
-Reference: ../meridian uses same WebLLM pattern for in-browser AI
+Reference: Meridian project uses same WebLLM pattern for in-browser AI
 
 ## Commands
 - `npm run dev` — Start dev server
@@ -120,7 +120,7 @@ Rejected: bert-base-NER, Piiranha v1, token classification, Llama 3.2 (safety re
 LLM overhaul: gemma-2-2b → Qwen3-4B. Fixed NER re-trigger bug, fuzzy text matching,
 `<think>` stripping, ACCOUNT_NUMBER type, chunk overlap. Verified on test text.
 ### Session 7 (2026-03-10)
-Tested on real PSEG utility bill PDF. Found and fixed critical Start Over race condition:
+Tested on real utility bill PDF. Found and fixed critical Start Over race condition:
 concurrent detect() calls corrupted WebLLM engine state (GPUBuffer unmapped, tokenizer deleted).
 Fix: abort controller + detecting mutex + engine reuse on reload. Added LLM inference progress
 bar ("AI scanning text — Chunk X of Y"). DevViewer now has clickable chunk navigation.
@@ -133,7 +133,7 @@ before/after comparison view for both PDF and text modes. DevViewer chunk nav ov
 Added EMAIL/PHONE/SSN/CREDIT_CARD mappings to mapLLMType.
 ### Session 9 (2026-03-11)
 Fixed critical quality regression: confidence field in LLM prompt distracted Qwen3-4B, causing
-missed addresses/names on PSEG bill. Reverted prompt, compute confidence from match quality.
+missed addresses/names on utility bill. Reverted prompt, compute confidence from match quality.
 Phase 4 completed: batch processing with multi-file drag-and-drop, per-file queue with live
 progress (parsing/AI scanning/reviewing/redacting phases), batch category rules, "Redact & Next
 File" one-click flow, Download All, skip files. Fixed batch UX: "ready to redact" instead of

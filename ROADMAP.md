@@ -169,6 +169,6 @@ These were tried and failed. Do NOT retry them:
 
 - **First Look Media pdf-redact-tools**: Rasterize pipeline, used by The Intercept. Our primary reference.
 - **Microsoft Presidio**: Open-source PII detection (regex + NER + context). Detection pipeline reference.
-- **Meridian project** (`../meridian`): WebLLM + in-browser AI pattern reference.
+- **Meridian project**: WebLLM + in-browser AI pattern reference.
 
 > "Redaction is a data destruction problem, not a rendering problem."
