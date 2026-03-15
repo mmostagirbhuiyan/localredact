@@ -4,5 +4,4 @@ dist
 *.local
 .playwright-mcp/
 *.png
-!docs/*.png
 test-pdfs/

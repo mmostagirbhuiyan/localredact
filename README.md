@@ -54,7 +54,7 @@ npm run test     # 80 tests
 
 ## Architecture
 
-![LocalRedact Architecture](docs/architecture.png)
+![LocalRedact Architecture](docs/architecture.svg)
 
 ## License
 
