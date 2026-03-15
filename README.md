@@ -54,29 +54,7 @@ npm run test     # 80 tests
 
 ## Architecture
 
-```
-PDF/Text Input
-    │
-    ├─► Regex Detection (instant) ─────────────────────┐
-    │                                                   │
-    ├─► pdfjs Text Extraction ──► Text Quality Check    ├─► Entity Review UI
-    │       │                         │                 │   (colored overlays)
-    │       │                    Low quality?            │
-    │       │                         │                 │
-    │       │                    Tesseract.js OCR ──────┤
-    │       │                    (4x scale, gamma,      │
-    │       │                     auto-rotation)        │
-    │       │                         │                 │
-    │       └─► Combined Text ──► Qwen3-4B LLM ───────┘
-    │           (chunked, 1500 chars)
-    │
-    └─► Redaction
-        ├─► Render page to canvas (3x scale)
-        ├─► Draw black boxes over PII regions
-        ├─► Encode as image-only PDF (pdf-lib)
-        ├─► Hex verify (no PII in output bytes)
-        └─► Download
-```
+![LocalRedact Architecture](docs/architecture.png)
 
 ## License
 
