@@ -10,6 +10,7 @@
 | 2 | True PDF Redaction (render-to-image) | **COMPLETE** |
 | 3 | OCR Fallback (Tesseract.js) | **COMPLETE** |
 | 4 | UX Polish | **COMPLETE** |
+| 5 | V2 Improvements | **COMPLETE** |
 
 ---
 
@@ -109,7 +110,7 @@ Done:
 - [x] PDFPageCanvas: per-page canvas + clickable entity overlays
 - [x] Review mode (colored boxes) and redacted mode (black boxes) toggle
 - [x] Category toggles (redact all PERSON, keep all ORG, etc.)
-- [x] Keyboard shortcuts: Tab/Shift+Tab, Space, Enter, Delete
+- [x] Keyboard shortcuts: Tab/Shift+Tab, Space, Enter, Delete, Ctrl+Z undo, Ctrl+Shift+Z redo
 - [x] Focused entity highlighting with auto-scroll
 - [x] Entity accept/reject per entity (sidebar + overlay click)
 - [x] Entity dedup in sidebar (grouped rows with count badges, group toggle)
@@ -134,6 +135,37 @@ Todo:
 
 ---
 
+## Phase 5: V2 Improvements — COMPLETE
+
+### 5.1 WebGPU Capability Gate — DONE
+- [x] `useWebGPU` hook detects WebGPU availability and device type (available/unavailable/mobile)
+- [x] Inline banner in input state when WebGPU unavailable (not a modal or splash)
+- [x] Regex-only detection still works without WebGPU
+- [x] Mobile has separate gate (existing), desktop without WebGPU gets informational notice
+
+### 5.2 Performance Metrics — DONE
+- [x] `LLMTimingData` in useNERModel tracks per-chunk and total LLM inference time
+- [x] `ScanMetrics` in App.tsx captures total scan time, regex time, LLM time, pages, OCR pages
+- [x] ShareCard displays metrics: timing row + color-coded entity category breakdown pills
+- [x] Timing resets on new file, batch start, text paste, and start over
+
+### 5.3 Undo/Redo — DONE
+- [x] `useUndoRedo` hook with dual stacks (undo/redo), max 50 actions
+- [x] All entity toggle handlers record previous state before changes
+- [x] Accept All / Reject All are single undo-able batch actions
+- [x] Ctrl+Z / Cmd+Z undo, Ctrl+Shift+Z / Cmd+Shift+Z redo
+- [x] Undo/Redo buttons in RedactControls sidebar (disabled when stack empty)
+- [x] Stacks cleared on redact, start over, and batch file advance
+
+### 5.4 ADDRESS Entity Type — DONE
+- [x] `ADDRESS` added to EntityCategory union and ENTITY_CONFIG (amber color)
+- [x] CSS vars: `--pii-address` / `--pii-address-soft` in dark and light themes
+- [x] LLM prompt distinguishes LOCATION (place names) from ADDRESS (full street addresses)
+- [x] Regex: US street addresses (number + name + suffix) and PO Box patterns
+- [x] mapLLMType: ADDRESS, STREET_ADDRESS, MAILING_ADDRESS all map to ADDRESS category
+
+---
+
 ## Models
 
 | Model/Engine | Purpose | Size | Status |
@@ -146,29 +178,20 @@ Todo:
 
 ## Dead Approaches
 
-These were tried and failed. Do NOT retry them:
-
-- **Content stream surgery** (pdf-lib): Too many edge cases. One miss = data leak.
-- **bert-base-NER**: Only 4 generic types (PER/ORG/LOC/MISC). Not PII-aware.
-- **Piiranha v1 (DeBERTa)**: Broken BIO tags (all I-, no B-), label flipping, missed names.
-- **Token classification in general**: BIO + subword merging is fragile. LLM + structured JSON is better.
-- **pdfjs text extraction alone**: Letter-spacing artifacts unsolvable. Vision model needed.
-- **Naive `.join(' ')` on text items**: Produces "C O N T A C T U S".
-- **Gap thresholds (0.3x-1.5x char width)**: Can't solve letter-spacing vs word-gap ambiguity.
-- **gemma-2-2b-it**: Empty `text` values on dense/tabular content. Too small.
-- **Llama 3.2 for PII**: Safety alignment refuses to extract PII.
-- **Example entities in prompt**: Causes hallucination across documents.
-- **Concurrent WebLLM detect() calls**: Corrupts GPU buffer state. Must serialize with mutex.
-- **Confidence field in LLM prompt**: Adding `"confidence":0.95` to the output format distracted Qwen3-4B — missed addresses and names on dense PDFs. Compute confidence from match quality instead (exact=0.95, fuzzy=0.80).
-- **SmolVLM-256M for OCR**: Returns plain text only — no bounding boxes for targeted redaction. Too small (256M) to reliably extract names from passports. Wrong `batch_decode` API. Replaced by Tesseract.js.
-- **Otsu binarization for OCR preprocessing**: Too aggressive on passport watermarks/holograms. Wipes out real text along with background. Gamma contrast stretch works better.
-- **cleanText filtering (confidence-based)**: Filtering OCR lines by avg word confidence drops real PII mixed with low-confidence noise. Send raw OCR text to LLM instead.
-- **preserve_interword_spaces for Tesseract**: Doubles word count with inserted spaces, breaks regex patterns and LLM entity matching.
+Do NOT retry these — each was tested and failed:
+- **PDF content stream surgery** (pdf-lib) — too many edge cases, one miss = data leak
+- **Token classification** (bert-base-NER, Piiranha/DeBERTa) — BIO tagging + subword merging is fragile
+- **gemma-2-2b-it** — empty results on dense content. Replaced by Qwen3-4B
+- **Llama 3.2** — safety alignment refuses to extract PII
+- **SmolVLM-256M** for OCR — no bounding boxes, too small. Replaced by Tesseract.js
+- **Confidence field in LLM prompt** — distracted Qwen3-4B, missed entities
+- **Example entities in prompt** — causes hallucination across documents
+- **Otsu binarization** — too aggressive on watermarked docs. Use gamma contrast
+- **preserve_interword_spaces** (Tesseract) — doubles word count, breaks matching
 
 ## References
 
-- **First Look Media pdf-redact-tools**: Rasterize pipeline, used by The Intercept. Our primary reference.
-- **Microsoft Presidio**: Open-source PII detection (regex + NER + context). Detection pipeline reference.
-- **Meridian project**: WebLLM + in-browser AI pattern reference.
+- **First Look Media pdf-redact-tools**: Rasterize pipeline, used by The Intercept.
+- **Microsoft Presidio**: Open-source PII detection (regex + NER + context).
 
 > "Redaction is a data destruction problem, not a rendering problem."

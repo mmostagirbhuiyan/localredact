@@ -29,6 +29,12 @@ export interface LLMDebugEntry {
   timestamp: number;
 }
 
+export interface LLMTimingData {
+  totalMs: number;
+  chunkTimesMs: number[];
+  chunkCount: number;
+}
+
 interface NERModelState {
   loading: boolean;
   ready: boolean;
@@ -72,7 +78,9 @@ function mapLLMType(type: string): EntityCategory | null {
     case 'PERSON': return 'PERSON';
     case 'ORGANIZATION': return 'ORGANIZATION';
     case 'LOCATION': return 'LOCATION';
-    case 'ADDRESS': return 'LOCATION';
+    case 'ADDRESS': return 'ADDRESS';
+    case 'STREET_ADDRESS': return 'ADDRESS';
+    case 'MAILING_ADDRESS': return 'ADDRESS';
     case 'DATE': return 'DATE';
     case 'ACCOUNT_NUMBER': return 'SSN';
     case 'USERNAME': return 'PERSON';
@@ -285,6 +293,7 @@ export function useNERModel() {
   const abortRef = useRef<AbortController | null>(null);
   const detectingRef = useRef(false);
   const [inferenceProgress, setInferenceProgress] = useState<{ current: number; total: number } | null>(null);
+  const [timing, setTiming] = useState<LLMTimingData | null>(null);
 
   // Check support on mount — block all mobile devices (model is ~2.5GB, needs desktop GPU)
   useEffect(() => {
@@ -380,6 +389,7 @@ export function useNERModel() {
 
     setDebugLog([]);
     setInferenceProgress(null);
+    setTiming(null);
 
     try {
       // Reset engine chat before starting new detection
@@ -418,6 +428,8 @@ export function useNERModel() {
 
       const allEntities: DetectedEntity[] = [];
       const existingRanges = new Set<string>();
+      const inferenceStart = performance.now();
+      const chunkTimesMs: number[] = [];
 
       for (let ci = 0; ci < chunks.length; ci++) {
         // Check if this detection was aborted (new document loaded)
@@ -432,6 +444,7 @@ export function useNERModel() {
         // Reset chat history to prevent context bleed between chunks
         await engineRef.current.resetChat(true);
 
+        const chunkStart = performance.now();
         let response = '';
         const completion = await engineRef.current.chat.completions.create({
           messages: [
@@ -448,6 +461,8 @@ export function useNERModel() {
           const delta = part.choices[0]?.delta?.content || '';
           if (delta) response += delta;
         }
+
+        chunkTimesMs.push(performance.now() - chunkStart);
 
         // Check abort after streaming completes
         if (abort.signal.aborted) {
@@ -501,6 +516,8 @@ export function useNERModel() {
         }
       }
 
+      const totalMs = performance.now() - inferenceStart;
+      setTiming({ totalMs, chunkTimesMs, chunkCount: chunks.length });
       setInferenceProgress(null);
       return allEntities.sort((a, b) => a.start - b.start);
     } catch (err) {
@@ -516,5 +533,5 @@ export function useNERModel() {
     }
   }, []);
 
-  return { ...state, loadModel, detect, debugLog, inferenceProgress };
+  return { ...state, loadModel, detect, debugLog, inferenceProgress, timing };
 }

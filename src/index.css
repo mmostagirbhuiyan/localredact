@@ -47,6 +47,8 @@
   --pii-org-soft: rgba(59, 130, 246, 0.15);
   --pii-location: #22C55E;
   --pii-location-soft: rgba(34, 197, 94, 0.15);
+  --pii-address: #D97706;
+  --pii-address-soft: rgba(217, 119, 6, 0.15);
   --pii-ssn-cc: #F97316;
   --pii-ssn-cc-soft: rgba(249, 115, 22, 0.15);
   --pii-email-phone: #A855F7;
@@ -95,6 +97,8 @@
   --pii-org-soft: rgba(37, 99, 235, 0.12);
   --pii-location: #16A34A;
   --pii-location-soft: rgba(22, 163, 74, 0.12);
+  --pii-address: #B45309;
+  --pii-address-soft: rgba(180, 83, 9, 0.12);
   --pii-ssn-cc: #EA580C;
   --pii-ssn-cc-soft: rgba(234, 88, 12, 0.12);
   --pii-email-phone: #9333EA;

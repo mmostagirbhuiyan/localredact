@@ -51,6 +51,16 @@ const PATTERNS: PatternDef[] = [
     pattern: /\b(?:0?[1-9]|[12]\d|3[01])\s+(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\.?\s*,?\s*\d{4}\b/gi,
     category: 'DATE',
   },
+  // US street address: number + street name + suffix
+  {
+    pattern: /\b\d{1,5}\s+(?:[A-Z][a-zA-Z]*\.?\s+){1,4}(?:Street|St|Avenue|Ave|Boulevard|Blvd|Drive|Dr|Road|Rd|Lane|Ln|Way|Court|Ct|Place|Pl|Terrace|Ter|Circle|Cir|Highway|Hwy|Parkway|Pkwy)\.?\b/gi,
+    category: 'ADDRESS',
+  },
+  // PO Box
+  {
+    pattern: /\bP\.?\s*O\.?\s*Box\s+\d+\b/gi,
+    category: 'ADDRESS',
+  },
 ];
 
 export function detectWithRegex(text: string): DetectedEntity[] {

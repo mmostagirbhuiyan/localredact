@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShieldCheck, Download, CheckCheck, XCircle, Loader2, FileText } from 'lucide-react';
+import { ShieldCheck, Download, CheckCheck, XCircle, Loader2, FileText, Undo2, Redo2 } from 'lucide-react';
 import { RedactStyle } from '../lib/redactor';
 
 interface RedactControlsProps {
@@ -12,6 +12,10 @@ interface RedactControlsProps {
   onRedact: () => void;
   onDownload: () => void;
   onDownloadReport?: () => void;
+  onUndo?: () => void;
+  onRedo?: () => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
   redacted: boolean;
   redacting?: boolean;
   redactProgress?: string;
@@ -28,6 +32,10 @@ export const RedactControls: React.FC<RedactControlsProps> = ({
   onRedact,
   onDownload,
   onDownloadReport,
+  onUndo,
+  onRedo,
+  canUndo = false,
+  canRedo = false,
   redacted,
   redacting = false,
   redactProgress = '',
@@ -56,6 +64,32 @@ export const RedactControls: React.FC<RedactControlsProps> = ({
           Reject All
         </button>
       </div>
+
+      {/* Undo / Redo */}
+      {(onUndo || onRedo) && (
+        <div className="flex gap-2">
+          <button
+            onClick={onUndo}
+            disabled={!canUndo}
+            className="btn-secondary flex-1 text-xs h-8"
+            style={{ opacity: canUndo ? 1 : 0.35 }}
+            title="Undo (Ctrl+Z)"
+          >
+            <Undo2 size={13} />
+            Undo
+          </button>
+          <button
+            onClick={onRedo}
+            disabled={!canRedo}
+            className="btn-secondary flex-1 text-xs h-8"
+            style={{ opacity: canRedo ? 1 : 0.35 }}
+            title="Redo (Ctrl+Shift+Z)"
+          >
+            <Redo2 size={13} />
+            Redo
+          </button>
+        </div>
+      )}
 
       {/* Redact style */}
       <div>

@@ -2,6 +2,7 @@ export type EntityCategory =
   | 'PERSON'
   | 'ORGANIZATION'
   | 'LOCATION'
+  | 'ADDRESS'
   | 'SSN'
   | 'CREDIT_CARD'
   | 'EMAIL'
@@ -25,6 +26,7 @@ export const ENTITY_CONFIG: Record<EntityCategory, { label: string; colorVar: st
   PERSON:       { label: 'Person',      colorVar: '--pii-person',      softVar: '--pii-person-soft' },
   ORGANIZATION: { label: 'Organization', colorVar: '--pii-org',         softVar: '--pii-org-soft' },
   LOCATION:     { label: 'Location',    colorVar: '--pii-location',    softVar: '--pii-location-soft' },
+  ADDRESS:      { label: 'Address',    colorVar: '--pii-address',     softVar: '--pii-address-soft' },
   SSN:          { label: 'SSN',         colorVar: '--pii-ssn-cc',      softVar: '--pii-ssn-cc-soft' },
   CREDIT_CARD:  { label: 'Credit Card', colorVar: '--pii-ssn-cc',      softVar: '--pii-ssn-cc-soft' },
   EMAIL:        { label: 'Email',       colorVar: '--pii-email-phone', softVar: '--pii-email-phone-soft' },

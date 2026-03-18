@@ -25,6 +25,9 @@ Detect and redact PII from PDFs and text — names, SSNs, addresses, dates, phon
 - **Confidence scoring** — computed from match quality (exact=0.95, fuzzy=0.80, regex=1.0)
 - **Comparison view** — side-by-side before/after
 - **Redaction report** — downloadable entity breakdown by category and detection source
+- **Undo/redo** — Ctrl+Z / Ctrl+Shift+Z during review, batch undo for Accept All / Reject All
+- **Performance metrics** — scan time, LLM inference time, entity breakdown by category after redaction
+- **WebGPU detection** — graceful fallback to regex-only mode when WebGPU unavailable
 
 ## Tech Stack
 
@@ -39,9 +42,10 @@ Detect and redact PII from PDFs and text — names, SSNs, addresses, dates, phon
 
 ## Requirements
 
-- Desktop browser with WebGPU support (Chrome 113+, Edge 113+, Safari 17+)
+- Desktop browser with WebGPU support (Chrome 113+, Edge 113+, Safari 17+) for full AI detection
 - ~4GB GPU VRAM (any Apple Silicon Mac, any discrete GPU)
 - First model load ~30s, cached after
+- Without WebGPU: regex-only detection (SSN, email, phone, dates, addresses) still works
 
 ## Development
 

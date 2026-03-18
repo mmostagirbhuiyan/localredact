@@ -10,6 +10,8 @@ import { DevViewer } from './components/DevViewer';
 import { ThemeToggle } from './components/ThemeToggle';
 import { usePDFParser } from './hooks/usePDFParser';
 import { useNERModel, MODEL_ID } from './hooks/useNERModel';
+import { useWebGPU } from './hooks/useWebGPU';
+import { useUndoRedo } from './hooks/useUndoRedo';
 import { useOCR } from './hooks/useOCR';
 import type { OCRPageResult } from './hooks/useOCR';
 import { detectWithRegex } from './lib/regex-patterns';
@@ -19,6 +21,15 @@ import { DetectedEntity, EntityCategory, ENTITY_CONFIG } from './lib/entity-type
 import { generateRedactionReport } from './lib/redaction-report';
 
 type AppState = 'input' | 'scanning' | 'review' | 'redacted';
+
+export interface ScanMetrics {
+  totalScanMs: number;
+  regexMs: number;
+  llmMs: number | null;
+  llmChunkCount: number;
+  pagesProcessed: number;
+  ocrPages: number;
+}
 
 interface QueueItem {
   file: File;
@@ -47,7 +58,12 @@ const App: React.FC = () => {
   const pdf = usePDFParser();
   const ner = useNERModel();
   const ocr = useOCR();
+  const webgpuStatus = useWebGPU();
+  const undoRedo = useUndoRedo();
   const [ocrResults, setOcrResults] = useState<OCRPageResult[]>([]);
+  const [scanMetrics, setScanMetrics] = useState<ScanMetrics | null>(null);
+  const scanStartRef = React.useRef<number>(0);
+  const regexMsRef = React.useRef<number>(0);
 
   // OCR fallback: when text quality is poor, extract text via Tesseract.js
   const [visionText, setVisionText] = useState<string | null>(null);
@@ -69,7 +85,9 @@ const App: React.FC = () => {
     if (!hasText && !hasPages) return;
 
     if (hasText) {
+      const regexStart = performance.now();
       let regexEntities = detectWithRegex(pdf.text!);
+      regexMsRef.current = performance.now() - regexStart;
       if (fileQueue.length > 1) {
         regexEntities = regexEntities.map(e => ({
           ...e,
@@ -173,8 +191,30 @@ const App: React.FC = () => {
     }
   }, [ner.ready, detectionText, appState]);
 
+  // Build scan metrics when LLM inference finishes (or when only regex was used)
+  useEffect(() => {
+    if (appState !== 'review') return;
+    // Wait for LLM to finish if model is loading or actively inferring
+    if (ner.loading || ner.inferenceProgress) return;
+
+    const totalScanMs = performance.now() - scanStartRef.current;
+    const ocrPageCount = ocrResults.filter(p => p.text.length > 0).length;
+
+    setScanMetrics({
+      totalScanMs,
+      regexMs: regexMsRef.current,
+      llmMs: ner.timing?.totalMs ?? null,
+      llmChunkCount: ner.timing?.chunkCount ?? 0,
+      pagesProcessed: pdf.isPDF ? pdf.pages.length : 0,
+      ocrPages: ocrPageCount,
+    });
+  }, [appState, ner.loading, ner.inferenceProgress, ner.timing, pdf.isPDF, pdf.pages.length, ocrResults]);
+
   const handleFileSelect = useCallback(
     (file: File) => {
+      scanStartRef.current = performance.now();
+      regexMsRef.current = 0;
+      setScanMetrics(null);
       setAppState('scanning');
       setEntities([]);
       setRedactedText(null);
@@ -198,6 +238,9 @@ const App: React.FC = () => {
       }));
       setFileQueue(queue);
       setActiveQueueIdx(0);
+      scanStartRef.current = performance.now();
+      regexMsRef.current = 0;
+      setScanMetrics(null);
       // Start processing the first file
       setAppState('scanning');
       setEntities([]);
@@ -269,6 +312,9 @@ const App: React.FC = () => {
 
   const handleTextPaste = useCallback(
     (text: string) => {
+      scanStartRef.current = performance.now();
+      regexMsRef.current = 0;
+      setScanMetrics(null);
       setAppState('scanning');
       setEntities([]);
       setRedactedText(null);
@@ -282,31 +328,93 @@ const App: React.FC = () => {
   );
 
   const handleToggleEntity = useCallback((id: string) => {
-    setEntities((prev) =>
-      prev.map((e) => (e.id === id ? { ...e, accepted: !e.accepted } : e)),
-    );
-  }, []);
+    setEntities((prev) => {
+      const entity = prev.find((e) => e.id === id);
+      if (entity) {
+        const changes = new Map<string, boolean>();
+        changes.set(id, entity.accepted);
+        undoRedo.recordAction(changes);
+      }
+      return prev.map((e) => (e.id === id ? { ...e, accepted: !e.accepted } : e));
+    });
+  }, [undoRedo]);
 
   const handleAcceptAll = useCallback(() => {
-    setEntities((prev) => prev.map((e) => ({ ...e, accepted: true })));
-  }, []);
+    setEntities((prev) => {
+      const changes = new Map<string, boolean>();
+      for (const e of prev) {
+        if (!e.accepted) changes.set(e.id, false);
+      }
+      undoRedo.recordAction(changes);
+      return prev.map((e) => ({ ...e, accepted: true }));
+    });
+  }, [undoRedo]);
 
   const handleRejectAll = useCallback(() => {
-    setEntities((prev) => prev.map((e) => ({ ...e, accepted: false })));
-  }, []);
+    setEntities((prev) => {
+      const changes = new Map<string, boolean>();
+      for (const e of prev) {
+        if (e.accepted) changes.set(e.id, true);
+      }
+      undoRedo.recordAction(changes);
+      return prev.map((e) => ({ ...e, accepted: false }));
+    });
+  }, [undoRedo]);
 
   const handleToggleGroup = useCallback((ids: string[], accepted: boolean) => {
     const idSet = new Set(ids);
-    setEntities((prev) =>
-      prev.map((e) => (idSet.has(e.id) ? { ...e, accepted } : e)),
-    );
-  }, []);
+    setEntities((prev) => {
+      const changes = new Map<string, boolean>();
+      for (const e of prev) {
+        if (idSet.has(e.id) && e.accepted !== accepted) changes.set(e.id, e.accepted);
+      }
+      undoRedo.recordAction(changes);
+      return prev.map((e) => (idSet.has(e.id) ? { ...e, accepted } : e));
+    });
+  }, [undoRedo]);
 
   const handleToggleCategory = useCallback((category: string, accepted: boolean) => {
-    setEntities((prev) =>
-      prev.map((e) => (e.category === category ? { ...e, accepted } : e)),
-    );
-  }, []);
+    setEntities((prev) => {
+      const changes = new Map<string, boolean>();
+      for (const e of prev) {
+        if (e.category === category && e.accepted !== accepted) changes.set(e.id, e.accepted);
+      }
+      undoRedo.recordAction(changes);
+      return prev.map((e) => (e.category === category ? { ...e, accepted } : e));
+    });
+  }, [undoRedo]);
+
+  const handleUndo = useCallback(() => {
+    const changes = undoRedo.undo();
+    if (!changes) return;
+    setEntities((prev) => {
+      const currentState = new Map<string, boolean>();
+      for (const e of prev) {
+        if (changes.has(e.id)) currentState.set(e.id, e.accepted);
+      }
+      undoRedo.pushRedo(currentState);
+      return prev.map((e) => {
+        const prevAccepted = changes.get(e.id);
+        return prevAccepted !== undefined ? { ...e, accepted: prevAccepted } : e;
+      });
+    });
+  }, [undoRedo]);
+
+  const handleRedo = useCallback(() => {
+    const changes = undoRedo.redo();
+    if (!changes) return;
+    setEntities((prev) => {
+      const currentState = new Map<string, boolean>();
+      for (const e of prev) {
+        if (changes.has(e.id)) currentState.set(e.id, e.accepted);
+      }
+      undoRedo.pushUndo(currentState);
+      return prev.map((e) => {
+        const newAccepted = changes.get(e.id);
+        return newAccepted !== undefined ? { ...e, accepted: newAccepted } : e;
+      });
+    });
+  }, [undoRedo]);
 
   const handleEditEntityText = useCallback((ids: string[], newText: string) => {
     const idSet = new Set(ids);
@@ -331,6 +439,7 @@ const App: React.FC = () => {
         // Also produce text version for preview
         const result = redactText(detectionText, entities, redactStyle);
         setRedactedText(result);
+        undoRedo.clear();
         setAppState('redacted');
       } finally {
         setRedacting(false);
@@ -338,9 +447,10 @@ const App: React.FC = () => {
     } else {
       const result = redactText(detectionText, entities, redactStyle);
       setRedactedText(result);
+      undoRedo.clear();
       setAppState('redacted');
     }
-  }, [detectionText, pdf.isPDF, pdf.pages, entities, redactStyle]);
+  }, [detectionText, pdf.isPDF, pdf.pages, entities, redactStyle, undoRedo]);
 
   const handleRedactAndNext = useCallback(async () => {
     if (!detectionText || !pdf.isPDF) return;
@@ -366,6 +476,8 @@ const App: React.FC = () => {
         return item;
       }));
 
+      undoRedo.clear();
+
       if (nextIdx === -1) {
         // Last file — show redacted state
         setRedactedPdfBytes(bytes);
@@ -389,7 +501,7 @@ const App: React.FC = () => {
     } finally {
       setRedacting(false);
     }
-  }, [detectionText, pdf.isPDF, pdf.pages, entities, redactStyle, fileQueue, activeQueueIdx, pdf]);
+  }, [detectionText, pdf.isPDF, pdf.pages, entities, redactStyle, fileQueue, activeQueueIdx, pdf, undoRedo]);
 
   const handleDownload = useCallback(() => {
     if (redactedPdfBytes) {
@@ -441,10 +553,12 @@ const App: React.FC = () => {
     setShowComparison(false);
     setVisionText(null);
     setOcrResults([]);
+    setScanMetrics(null);
     nerScannedRef.current = null;
     visionScannedRef.current = null;
+    undoRedo.clear();
     pdf.reset();
-  }, [pdf]);
+  }, [pdf, undoRedo]);
 
   // Keyboard shortcuts for entity review
   const [focusedEntityIdx, setFocusedEntityIdx] = useState<number>(-1);
@@ -456,6 +570,19 @@ const App: React.FC = () => {
       // Don't capture when typing in inputs
       const tag = (e.target as HTMLElement).tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+
+      // Undo: Ctrl+Z / Cmd+Z
+      if (e.key === 'z' && (e.metaKey || e.ctrlKey) && !e.shiftKey) {
+        e.preventDefault();
+        handleUndo();
+        return;
+      }
+      // Redo: Ctrl+Shift+Z / Cmd+Shift+Z
+      if (e.key === 'z' && (e.metaKey || e.ctrlKey) && e.shiftKey) {
+        e.preventDefault();
+        handleRedo();
+        return;
+      }
 
       if (e.key === 'Tab') {
         e.preventDefault();
@@ -469,6 +596,9 @@ const App: React.FC = () => {
         e.preventDefault();
         const entity = entities[focusedEntityIdx];
         if (entity && !entity.accepted) {
+          const changes = new Map<string, boolean>();
+          changes.set(entity.id, false);
+          undoRedo.recordAction(changes);
           setEntities((prev) =>
             prev.map((ent) => (ent.id === entity.id ? { ...ent, accepted: true } : ent)),
           );
@@ -477,6 +607,9 @@ const App: React.FC = () => {
         e.preventDefault();
         const entity = entities[focusedEntityIdx];
         if (entity && entity.accepted) {
+          const changes = new Map<string, boolean>();
+          changes.set(entity.id, true);
+          undoRedo.recordAction(changes);
           setEntities((prev) =>
             prev.map((ent) => (ent.id === entity.id ? { ...ent, accepted: false } : ent)),
           );
@@ -490,7 +623,7 @@ const App: React.FC = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [appState, entities, focusedEntityIdx, handleToggleEntity]);
+  }, [appState, entities, focusedEntityIdx, handleToggleEntity, handleUndo, handleRedo, undoRedo]);
 
   // Reset focus when entities change significantly
   useEffect(() => {
@@ -798,6 +931,27 @@ const App: React.FC = () => {
               </div>
             )}
 
+            {/* WebGPU unavailable notice (desktop only — mobile has its own gate) */}
+            {webgpuStatus === 'unavailable' && (
+              <div
+                className="w-full max-w-2xl mx-auto rounded-xl px-4 py-3 text-sm"
+                style={{
+                  background: 'var(--bg-soft)',
+                  border: '1px solid var(--border-default)',
+                  color: 'var(--ink-secondary)',
+                }}
+              >
+                <p className="font-medium mb-1" style={{ color: 'var(--ink-primary)' }}>
+                  WebGPU not detected
+                </p>
+                <p>
+                  Your browser doesn't support WebGPU. Regex-based detection (SSN, email, phone,
+                  dates) still works. For AI-powered name and address detection, use Chrome 113+
+                  or Edge 113+ on a desktop with a GPU.
+                </p>
+              </div>
+            )}
+
             <DropZone
               onFileSelect={handleFileSelect}
               onFilesSelect={handleFilesSelect}
@@ -1031,6 +1185,10 @@ const App: React.FC = () => {
                 onRejectAll={handleRejectAll}
                 onRedact={handleRedact}
                 onDownload={handleDownload}
+                onUndo={handleUndo}
+                onRedo={handleRedo}
+                canUndo={undoRedo.canUndo}
+                canRedo={undoRedo.canRedo}
                 redacted={false}
                 redacting={redacting}
                 redactProgress={redactProgress}
@@ -1042,7 +1200,7 @@ const App: React.FC = () => {
                   style={{ background: 'var(--bg-soft)', color: 'var(--ink-faint)' }}
                 >
                   <span className="font-medium" style={{ color: 'var(--ink-tertiary)' }}>Keyboard:</span>{' '}
-                  Tab/Shift+Tab navigate, Space toggle, Enter accept, Delete reject
+                  Tab/Shift+Tab navigate, Space toggle, Enter accept, Delete reject, Ctrl+Z undo, Ctrl+Shift+Z redo
                 </div>
               )}
               <EntityList
@@ -1089,6 +1247,8 @@ const App: React.FC = () => {
             <ShareCard
               entityCount={acceptedCount}
               visible={true}
+              scanMetrics={scanMetrics}
+              entities={entities}
             />
 
             <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6">

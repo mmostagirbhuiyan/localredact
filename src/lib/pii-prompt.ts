@@ -6,8 +6,8 @@ Each item: {"type":"TYPE","text":"EXACT text from input"}
 Types:
 PERSON - full names, first+last names. Check near "customer", "name", "account holder", "member", "patient"
 ORGANIZATION - companies, agencies, institutions, utilities, banks
-LOCATION - cities, states, countries, counties, regions
-ADDRESS - full street addresses, mailing addresses with zip/postal codes
+LOCATION - place names only: cities, states, countries, counties, regions, landmarks
+ADDRESS - full street addresses with number + street name (123 Main St, Apt 4, City, ST 12345), PO Boxes, mailing addresses
 ACCOUNT_NUMBER - account numbers, customer IDs, meter numbers, member IDs, policy numbers, invoice numbers
 
 Rules:
