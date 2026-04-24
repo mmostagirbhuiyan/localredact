@@ -12,7 +12,8 @@ const MODEL_IDS = {
 
 async function detectWebGPU() {
   try {
-    const adapter = await navigator.gpu?.requestAdapter();
+    if (!navigator.gpu) return false;
+    const adapter = await navigator.gpu.requestAdapter();
     return !!adapter;
   } catch {
     return false;
@@ -21,15 +22,28 @@ async function detectWebGPU() {
 
 class TextGenerationPipeline {
   static instances = new Map();
+  static resolvedDevice = null;
 
   static async getInstance(modelKey, progress_callback = null) {
-    const modelId = MODEL_IDS[modelKey];
-    if (!modelId) throw new Error(`Unknown model: ${modelKey}`);
     if (!this.instances.has(modelKey)) {
       const hasWebGPU = await detectWebGPU();
       const device = hasWebGPU ? "webgpu" : "wasm";
-      const dtype = hasWebGPU ? "q1f16" : "q4";
-      console.log(`[Bonsai] Using device: ${device}, dtype: ${dtype}`);
+      this.resolvedDevice = device;
+
+      let modelId, dtype;
+      if (hasWebGPU) {
+        modelId = MODEL_IDS[modelKey];
+        dtype = "q1f16";
+      } else {
+        // WASM can't handle 8B -- fall back to 1.7B with q4
+        modelId = MODEL_IDS["1.7b"];
+        dtype = "q4";
+        console.log(`[Bonsai] WebGPU unavailable, falling back to 1.7B on WASM`);
+      }
+
+      console.log(`[Bonsai] Using device: ${device}, model: ${modelId}, dtype: ${dtype}`);
+      self.postMessage({ status: "backend", device, modelId });
+
       this.instances.set(
         modelKey,
         pipeline("text-generation", modelId, {
