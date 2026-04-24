@@ -4,6 +4,7 @@ import { DropZone } from './components/DropZone';
 import { DocumentViewer } from './components/DocumentViewer';
 import { PDFPageViewer } from './components/PDFPageViewer';
 import { EntityList } from './components/EntityList';
+import { KeywordRedactionPanel } from './components/KeywordRedactionPanel';
 import { RedactControls } from './components/RedactControls';
 import { ShareCard } from './components/ShareCard';
 import { DevViewer } from './components/DevViewer';
@@ -19,6 +20,7 @@ import { redactText, RedactStyle } from './lib/redactor';
 import { createRedactedPDF } from './lib/pdf-redactor';
 import { DetectedEntity, EntityCategory, ENTITY_CONFIG } from './lib/entity-types';
 import { generateRedactionReport } from './lib/redaction-report';
+import { findKeywordEntities, type KeywordMatchSummary } from './lib/keyword-matcher';
 
 type AppState = 'input' | 'scanning' | 'review' | 'redacted';
 
@@ -127,9 +129,6 @@ const App: React.FC = () => {
       console.log(`[OCR] Extracting text from ${pagesToScan.length} pages via Tesseract.js...`);
 
       ocr.ocrPDFPages(pdfDoc, pagesToScan).then(({ pages: ocrPages }) => {
-        // Store OCR results for coordinate mapping during redaction
-        setOcrResults(ocrPages);
-
         // Build combined text from OCR raw output for detection
         const pageTexts: string[] = [];
         for (let i = 0; i < pdf.pages.length; i++) {
@@ -142,6 +141,22 @@ const App: React.FC = () => {
             pageTexts.push(originalPageText);
           }
         }
+
+        const ocrPageOffsets = new Map<number, { textStart: number; textEnd: number }>();
+        let offset = 0;
+        for (let i = 0; i < pageTexts.length; i++) {
+          const textStart = offset;
+          const textEnd = offset + pageTexts[i].length;
+          ocrPageOffsets.set(i, { textStart, textEnd });
+          offset = textEnd + 2;
+        }
+        const ocrPagesWithOffsets = ocrPages.map((page) => ({
+          ...page,
+          ...ocrPageOffsets.get(page.pageIndex),
+        }));
+
+        // Store OCR results for coordinate mapping during redaction
+        setOcrResults(ocrPagesWithOffsets);
 
         const combined = pageTexts.join('\n\n');
         console.log(`[OCR] Combined text ready (${combined.length} chars). Re-running detection.`);
@@ -422,6 +437,22 @@ const App: React.FC = () => {
       prev.map((e) => (idSet.has(e.id) ? { ...e, text: newText } : e)),
     );
   }, []);
+
+  const handleAddKeywordMatches = useCallback((
+    keywords: string,
+    options: { caseSensitive: boolean; wholeWord: boolean },
+  ): KeywordMatchSummary => {
+    if (!detectionText) {
+      return { keywordCount: 0, matchCount: 0, skippedOverlapCount: 0 };
+    }
+
+    const result = findKeywordEntities(detectionText, keywords, entities, options);
+    if (result.entities.length > 0) {
+      setEntities((prev) => [...prev, ...result.entities].sort((a, b) => a.start - b.start));
+    }
+
+    return result.summary;
+  }, [detectionText, entities]);
 
   const handleRedact = useCallback(async () => {
     if (!detectionText) return;
@@ -1203,6 +1234,10 @@ const App: React.FC = () => {
                   Tab/Shift+Tab navigate, Space toggle, Enter accept, Delete reject, Ctrl+Z undo, Ctrl+Shift+Z redo
                 </div>
               )}
+              <KeywordRedactionPanel
+                onAddKeywords={handleAddKeywordMatches}
+                disabled={!detectionText}
+              />
               <EntityList
                 entities={entities}
                 onToggle={handleToggleEntity}

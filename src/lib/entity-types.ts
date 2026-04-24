@@ -7,9 +7,10 @@ export type EntityCategory =
   | 'CREDIT_CARD'
   | 'EMAIL'
   | 'PHONE'
-  | 'DATE';
+  | 'DATE'
+  | 'CUSTOM';
 
-export type DetectionSource = 'regex' | 'ner';
+export type DetectionSource = 'regex' | 'ner' | 'keyword';
 
 export interface DetectedEntity {
   id: string;
@@ -19,7 +20,7 @@ export interface DetectedEntity {
   start: number;
   end: number;
   accepted: boolean;
-  confidence?: number; // 0-1, regex=1.0, LLM=model-reported
+  confidence?: number; // 0-1, regex/keyword=1.0, LLM=computed from match quality
 }
 
 export const ENTITY_CONFIG: Record<EntityCategory, { label: string; colorVar: string; softVar: string }> = {
@@ -32,6 +33,7 @@ export const ENTITY_CONFIG: Record<EntityCategory, { label: string; colorVar: st
   EMAIL:        { label: 'Email',       colorVar: '--pii-email-phone', softVar: '--pii-email-phone-soft' },
   PHONE:        { label: 'Phone',       colorVar: '--pii-email-phone', softVar: '--pii-email-phone-soft' },
   DATE:         { label: 'Date',        colorVar: '--pii-date',        softVar: '--pii-date-soft' },
+  CUSTOM:       { label: 'Custom',      colorVar: '--pii-custom',      softVar: '--pii-custom-soft' },
 };
 
 let entityCounter = 0;
