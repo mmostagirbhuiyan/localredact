@@ -10,18 +10,31 @@ const MODEL_IDS = {
   "1.7b": "onnx-community/Bonsai-1.7B-ONNX",
 };
 
+async function detectWebGPU() {
+  try {
+    const adapter = await navigator.gpu?.requestAdapter();
+    return !!adapter;
+  } catch {
+    return false;
+  }
+}
+
 class TextGenerationPipeline {
   static instances = new Map();
 
-  static getInstance(modelKey, progress_callback = null) {
+  static async getInstance(modelKey, progress_callback = null) {
     const modelId = MODEL_IDS[modelKey];
     if (!modelId) throw new Error(`Unknown model: ${modelKey}`);
     if (!this.instances.has(modelKey)) {
+      const hasWebGPU = await detectWebGPU();
+      const device = hasWebGPU ? "webgpu" : "wasm";
+      const dtype = hasWebGPU ? "q1f16" : "q4";
+      console.log(`[Bonsai] Using device: ${device}, dtype: ${dtype}`);
       this.instances.set(
         modelKey,
         pipeline("text-generation", modelId, {
-          device: "webgpu",
-          dtype: "q1f16",
+          device,
+          dtype,
           progress_callback,
         }),
       );
