@@ -2,14 +2,14 @@
 
 **Edge AI document redaction. Entirely in your browser.**
 
-Detect and redact PII from PDFs and text — names, SSNs, addresses, dates, phone numbers, emails — using a 4B parameter LLM running on your GPU via WebGPU. No uploads. No servers. Your document never leaves your device.
+Detect and redact PII from PDFs and text — names, SSNs, addresses, dates, phone numbers, emails — using PrismML's Bonsai 8B (1-bit LLM, 1.2GB) running on your GPU via WebGPU. No uploads. No servers. Your document never leaves your device.
 
 **Live at [redact.mmostagirbhuiyan.com](https://redact.mmostagirbhuiyan.com)**
 
 ## How It Works
 
 1. **Drop** a PDF or paste text
-2. **Detect** — regex runs instantly, then Qwen3-4B scans for names, orgs, locations, addresses
+2. **Detect** — regex runs instantly, then Bonsai 8B scans for names, orgs, locations, addresses
 3. **Review** — accept or reject each detection with colored overlays on the actual PDF
 4. **Redact** — black boxes destroy the original content (render-to-image, no text survives)
 5. **Download** — clean PDF with hex-verified redaction
@@ -35,7 +35,7 @@ Detect and redact PII from PDFs and text — names, SSNs, addresses, dates, phon
 |-------|-----------|
 | Framework | React 18 + TypeScript + Vite |
 | Styling | Tailwind CSS v4 (PostCSS) |
-| AI Model | Qwen3-4B-q4f16_1-MLC (~2.5GB, WebGPU via WebLLM) |
+| AI Model | Bonsai 8B 1-bit (~1.2GB, WebGPU via Transformers.js) |
 | OCR | Tesseract.js v7 (WASM + WebWorker) |
 | PDF | pdfjs-dist (parsing) + pdf-lib (output) |
 | Hosting | Cloudflare Pages (static) |

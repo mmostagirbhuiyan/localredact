@@ -925,7 +925,7 @@ const App: React.FC = () => {
                   Desktop browser required
                 </p>
                 <p className="text-xs" style={{ color: 'var(--ink-tertiary)' }}>
-                  LocalRedact uses a 2.5GB AI model that requires a desktop GPU.
+                  LocalRedact uses a 1.2GB AI model that requires a desktop GPU.
                   Open this page on a laptop or desktop with Chrome, Edge, or Safari.
                 </p>
               </div>
@@ -1025,7 +1025,7 @@ const App: React.FC = () => {
                       Loading AI Detection Model
                     </h3>
                     <p className="text-xs mb-4" style={{ color: 'var(--ink-tertiary)' }}>
-                      First load ~30s, cached after (~2.5GB)
+                      First load ~30s, cached after (~1.2GB)
                     </p>
 
                     <div className="max-w-xs mx-auto">
@@ -1049,15 +1049,15 @@ const App: React.FC = () => {
                     <p className="text-xs mt-3" style={{ color: 'var(--ink-faint)' }}>
                       Downloading{' '}
                       <a
-                        href="https://huggingface.co/mlc-ai/Qwen3-4B-q4f16_1-MLC"
+                        href="https://huggingface.co/onnx-community/Bonsai-8B-ONNX"
                         target="_blank"
                         rel="noopener noreferrer"
                         className="underline underline-offset-2"
                         style={{ color: 'var(--ink-tertiary)' }}
                       >
-                        Qwen3-4B
+                        Bonsai 8B
                       </a>
-                      {' '}(Apache 2.0) via WebGPU. Runs locally, never sent to a server.
+                      {' '}(Apache 2.0, 1-bit) via WebGPU. Runs locally, never sent to a server.
                     </p>
                   </div>
                 </div>
@@ -1411,11 +1411,11 @@ const App: React.FC = () => {
         </p>
         <p className="text-xs" style={{ color: 'var(--ink-faint)' }}>
           Powered by{' '}
-          <a href="https://huggingface.co/mlc-ai/Qwen3-4B-q4f16_1-MLC" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2" style={{ color: 'var(--ink-tertiary)' }}>Qwen3-4B</a>
+          <a href="https://huggingface.co/prism-ml/Bonsai-8B-gguf" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2" style={{ color: 'var(--ink-tertiary)' }}>Bonsai 8B</a>
           {' '}&middot;{' '}
           <a href="https://github.com/naptha/tesseract.js" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2" style={{ color: 'var(--ink-tertiary)' }}>Tesseract.js</a>
           {' '}&middot;{' '}
-          <a href="https://github.com/mlc-ai/web-llm" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2" style={{ color: 'var(--ink-tertiary)' }}>WebLLM</a>
+          <a href="https://huggingface.co/docs/transformers.js" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2" style={{ color: 'var(--ink-tertiary)' }}>Transformers.js</a>
         </p>
         <p className="text-xs" style={{ color: 'var(--ink-faint)' }}>
           Built by{' '}

@@ -2,21 +2,14 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { DetectedEntity, EntityCategory, createEntityId } from '../lib/entity-types';
 import { PII_SYSTEM_PROMPT, buildPIIUserPrompt } from '../lib/pii-prompt';
 
-interface WebLLMEngine {
-  chat: {
-    completions: {
-      create: (params: {
-        messages: Array<{ role: string; content: string }>;
-        stream: boolean;
-        temperature: number;
-        max_tokens: number;
-      }) => AsyncIterable<{
-        choices: Array<{ delta?: { content?: string } }>;
-      }>;
-    };
-  };
-  resetChat: (keepStats?: boolean) => Promise<void>;
-  unload: () => void;
+interface BonsaiWorkerMessage {
+  status: 'loading' | 'ready' | 'token' | 'complete' | 'error';
+  progress?: number;
+  token?: string;
+  output?: string;
+  tps?: number;
+  numTokens?: number;
+  data?: string;
 }
 
 export interface LLMDebugEntry {
@@ -48,7 +41,8 @@ interface PIIEntity {
   confidence?: number;
 }
 
-export const MODEL_ID = 'Qwen3-4B-q4f16_1-MLC';
+export const MODEL_ID = 'onnx-community/Bonsai-8B-ONNX';
+export const BONSAI_MODEL_KEY = '8b';
 
 function checkWebGPUSupport(): boolean {
   if (typeof navigator === 'undefined') return false;
@@ -287,7 +281,7 @@ export function useNERModel() {
     error: null,
   });
 
-  const engineRef = useRef<WebLLMEngine | null>(null);
+  const workerRef = useRef<Worker | null>(null);
   const supportedRef = useRef<boolean | null>(null);
   const [debugLog, setDebugLog] = useState<LLMDebugEntry[]>([]);
   const abortRef = useRef<AbortController | null>(null);
@@ -295,7 +289,6 @@ export function useNERModel() {
   const [inferenceProgress, setInferenceProgress] = useState<{ current: number; total: number } | null>(null);
   const [timing, setTiming] = useState<LLMTimingData | null>(null);
 
-  // Check support on mount — block all mobile devices (model is ~2.5GB, needs desktop GPU)
   useEffect(() => {
     const hasWebGPU = checkWebGPUSupport();
     const isIOS = detectIOSDevice();
@@ -305,18 +298,17 @@ export function useNERModel() {
     if (isIOS) {
       setState(prev => ({ ...prev, error: 'AI detection is not available on iPhone/iPad. Safari\'s WebGPU has known issues that cause crashes. Use a desktop browser instead.' }));
     } else if (isMobile) {
-      setState(prev => ({ ...prev, error: 'AI detection requires a desktop browser. The model is too large (~2.5GB) for mobile devices.' }));
+      setState(prev => ({ ...prev, error: 'AI detection requires a desktop browser. The model needs ~1.2GB download and a WebGPU-capable GPU.' }));
     } else if (!hasWebGPU) {
       setState(prev => ({ ...prev, error: 'WebGPU not available. AI detection requires Chrome 113+, Edge 113+, or Safari 17+.' }));
     }
   }, []);
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (engineRef.current) {
-        try { engineRef.current.unload(); } catch { /* ignore */ }
-        engineRef.current = null;
+      if (workerRef.current) {
+        workerRef.current.terminate();
+        workerRef.current = null;
       }
     };
   }, []);
@@ -324,8 +316,7 @@ export function useNERModel() {
   const loadModel = useCallback(async () => {
     if (supportedRef.current === false) return;
 
-    // If engine already loaded and ready, just signal ready
-    if (engineRef.current && !state.loading) {
+    if (workerRef.current && !state.loading) {
       setState(prev => ({ ...prev, ready: true }));
       return;
     }
@@ -334,19 +325,31 @@ export function useNERModel() {
     setState({ loading: true, ready: false, progress: 0, error: null });
 
     try {
-      const webllm = await import('@mlc-ai/web-llm');
+      const worker = new Worker(
+        new URL('../workers/bonsai-worker.js', import.meta.url),
+        { type: 'module' },
+      );
 
-      const engine = await webllm.CreateMLCEngine(MODEL_ID, {
-        initProgressCallback: (report: { progress?: number; text?: string }) => {
-          console.log('[WebLLM] Progress:', JSON.stringify(report));
-          if (report.progress !== undefined) {
-            setState(prev => ({ ...prev, progress: Math.round(report.progress! * 100) }));
-          }
-        },
-      });
+      worker.onmessage = (e: MessageEvent<BonsaiWorkerMessage>) => {
+        const { status, progress } = e.data;
+        if (status === 'loading') {
+          console.log('[Bonsai] Loading:', progress);
+          setState(prev => ({ ...prev, progress: Math.round(progress ?? 0) }));
+        } else if (status === 'ready') {
+          console.log('[Bonsai] Model ready');
+          setState({ loading: false, ready: true, progress: 100, error: null });
+        } else if (status === 'error') {
+          setState({
+            loading: false,
+            ready: false,
+            progress: 0,
+            error: e.data.data || 'Failed to load AI model',
+          });
+        }
+      };
 
-      engineRef.current = engine as unknown as WebLLMEngine;
-      setState({ loading: false, ready: true, progress: 100, error: null });
+      workerRef.current = worker;
+      worker.postMessage({ type: 'load', data: BONSAI_MODEL_KEY });
     } catch (err) {
       setState({
         loading: false,
@@ -357,17 +360,38 @@ export function useNERModel() {
     }
   }, [state.loading]);
 
-  const detect = useCallback(async (text: string): Promise<DetectedEntity[]> => {
-    if (!engineRef.current) return [];
+  const generateWithWorker = useCallback((
+    messages: Array<{ role: string; content: string }>,
+  ): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const worker = workerRef.current;
+      if (!worker) { reject(new Error('Worker not loaded')); return; }
 
-    // Cancel any in-progress detection — the old run will see this and bail out
+      let response = '';
+      const handler = (e: MessageEvent<BonsaiWorkerMessage>) => {
+        if (e.data.status === 'token') {
+          response += e.data.token ?? '';
+        } else if (e.data.status === 'complete') {
+          worker.removeEventListener('message', handler);
+          resolve(e.data.output ?? response);
+        } else if (e.data.status === 'error') {
+          worker.removeEventListener('message', handler);
+          reject(new Error(e.data.data ?? 'Generation failed'));
+        }
+      };
+      worker.addEventListener('message', handler);
+      worker.postMessage({ type: 'generate', data: { messages, max_tokens: 1024, temperature: 0 } });
+    });
+  }, []);
+
+  const detect = useCallback(async (text: string): Promise<DetectedEntity[]> => {
+    if (!workerRef.current) return [];
+
     if (abortRef.current) {
       abortRef.current.abort();
       abortRef.current = null;
     }
 
-    // If engine is mid-inference, we can't safely interrupt the WebGPU stream.
-    // Wait for it to finish its current chunk, then proceed.
     if (detectingRef.current) {
       console.log('[LLM] Waiting for previous detection to finish...');
       const waitStart = Date.now();
@@ -379,7 +403,6 @@ export function useNERModel() {
         }
         await new Promise(r => setTimeout(r, 100));
       }
-      // Give the engine a moment to settle after the previous run
       await new Promise(r => setTimeout(r, 200));
     }
 
@@ -392,12 +415,8 @@ export function useNERModel() {
     setTiming(null);
 
     try {
-      // Reset engine chat before starting new detection
-      await engineRef.current.resetChat(true);
-
-      // Chunk text for LLM processing with overlap to catch boundary entities.
       const maxChunkSize = 1500;
-      const overlapSize = 200; // chars of overlap between chunks
+      const overlapSize = 200;
       const chunks: { text: string; offset: number }[] = [];
       let pos = 0;
 
@@ -408,7 +427,6 @@ export function useNERModel() {
         }
         const window = text.slice(pos, pos + maxChunkSize);
         let breakAt = -1;
-        // Find last paragraph or sentence break
         for (let i = window.length - 1; i >= Math.floor(window.length / 2); i--) {
           if (window[i] === '\n' || window[i] === '.' || window[i] === '!' || window[i] === '?') {
             breakAt = i + 1;
@@ -422,7 +440,6 @@ export function useNERModel() {
         }
         const end = breakAt > 0 ? breakAt : maxChunkSize;
         chunks.push({ text: text.slice(pos, pos + end), offset: pos });
-        // Step forward minus overlap so next chunk re-scans the tail
         pos += Math.max(end - overlapSize, Math.floor(end / 2));
       }
 
@@ -432,7 +449,6 @@ export function useNERModel() {
       const chunkTimesMs: number[] = [];
 
       for (let ci = 0; ci < chunks.length; ci++) {
-        // Check if this detection was aborted (new document loaded)
         if (abort.signal.aborted) {
           console.log('[LLM] Detection aborted at chunk', ci);
           return [];
@@ -441,30 +457,17 @@ export function useNERModel() {
         setInferenceProgress({ current: ci + 1, total: chunks.length });
 
         const chunk = chunks[ci];
-        // Reset chat history to prevent context bleed between chunks
-        await engineRef.current.resetChat(true);
+        workerRef.current.postMessage({ type: 'reset' });
 
         const chunkStart = performance.now();
-        let response = '';
-        const completion = await engineRef.current.chat.completions.create({
-          messages: [
-            { role: 'system', content: PII_SYSTEM_PROMPT },
-            { role: 'user', content: buildPIIUserPrompt(chunk.text) },
-          ],
-          stream: true,
-          temperature: 0,
-          max_tokens: 1024,
-        });
+        const messages = [
+          { role: 'system', content: PII_SYSTEM_PROMPT },
+          { role: 'user', content: buildPIIUserPrompt(chunk.text) },
+        ];
 
-        for await (const part of completion) {
-          if (abort.signal.aborted) break;
-          const delta = part.choices[0]?.delta?.content || '';
-          if (delta) response += delta;
-        }
-
+        const response = await generateWithWorker(messages);
         chunkTimesMs.push(performance.now() - chunkStart);
 
-        // Check abort after streaming completes
         if (abort.signal.aborted) {
           console.log('[LLM] Detection aborted during chunk', ci);
           return [];
@@ -492,7 +495,6 @@ export function useNERModel() {
             continue;
           }
 
-          // Find all positions of this entity in the full source text
           const positions = findEntityPositions(entity.text, text, existingRanges);
 
           if (positions.length === 0) {
@@ -531,7 +533,7 @@ export function useNERModel() {
       detectingRef.current = false;
       setInferenceProgress(null);
     }
-  }, []);
+  }, [generateWithWorker]);
 
   return { ...state, loadModel, detect, debugLog, inferenceProgress, timing };
 }

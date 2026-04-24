@@ -16,9 +16,9 @@ True PDF redaction via render-to-image pipeline (pdfjs canvas → black boxes �
 Hosted on Cloudflare Pages (static). See ROADMAP.md for full v2 implementation plan.
 
 ## Tech Stack
-Vite | React 18 | TypeScript | Tailwind CSS v4 (PostCSS) | @mlc-ai/web-llm (WebGPU LLM inference)
+Vite | React 18 | TypeScript | Tailwind CSS v4 (PostCSS) | @huggingface/transformers (WebGPU LLM inference)
 pdfjs-dist | pdf-lib | tesseract.js | lucide-react | framer-motion
-Active model: Qwen3-4B-q4f16_1-MLC (PII extraction, ~2.5GB, WebGPU). Tesseract.js (OCR fallback, WASM+WebWorker)
+Active model: Bonsai-8B via onnx-community/Bonsai-8B-ONNX (PII extraction, ~1.2GB, 1-bit, WebGPU). Tesseract.js (OCR fallback, WASM+WebWorker)
 
 ## Commands
 - `npm run dev` — Start dev server
@@ -106,7 +106,7 @@ Last Updated: 2026-03-18 | Session 11 | All phases complete.
 - Text: paste → detect → redact → download
 - Batch: multi-file drop → per-file queue → category rules → Redact & Next File → Download All
 
-**Model config:** Qwen3-4B-q4f16_1-MLC (~2.5GB, cached). Temp 0, max_tokens 1024, /no_think.
+**Model config:** Bonsai-8B-ONNX q1f16 (~1.2GB, cached). Temp 0, max_tokens 1024, /no_think. Inference via Transformers.js Web Worker.
 **Confidence:** computed from match quality (exact=0.95, fuzzy=0.80, regex=1.0), not LLM output.
 **Known issues:** LLM occasionally non-deterministic on chunk count. OCR limited on heavy holographic overlays.
 

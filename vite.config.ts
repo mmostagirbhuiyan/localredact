@@ -8,7 +8,6 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          'web-llm': ['@mlc-ai/web-llm'],
           'pdf': ['pdfjs-dist', 'pdf-lib'],
         },
       },
