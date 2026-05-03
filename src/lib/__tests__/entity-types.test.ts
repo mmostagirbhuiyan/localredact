@@ -4,7 +4,7 @@ import { ENTITY_CONFIG, createEntityId, EntityCategory } from '../entity-types';
 describe('entity types', () => {
   describe('ENTITY_CONFIG', () => {
     const expectedCategories: EntityCategory[] = [
-      'PERSON', 'ORGANIZATION', 'LOCATION', 'SSN', 'CREDIT_CARD', 'EMAIL', 'PHONE', 'DATE',
+      'PERSON', 'ORGANIZATION', 'LOCATION', 'ADDRESS', 'SSN', 'CREDIT_CARD', 'EMAIL', 'PHONE', 'DATE', 'CUSTOM',
     ];
 
     it('has config for all entity categories', () => {

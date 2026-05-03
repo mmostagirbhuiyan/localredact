@@ -162,7 +162,7 @@ export const PDFPageViewer: React.FC<PDFPageViewerProps> = ({
                 mode={mode}
                 focusedEntityId={focusedEntityId}
                 onEntityClick={onEntityClick}
-                ocrWords={ocrResults?.find(r => r.pageIndex === page.pageIndex)?.words}
+                ocrPage={ocrResults?.find(r => r.pageIndex === page.pageIndex)}
               />
             ) : (
               // Placeholder for off-screen pages

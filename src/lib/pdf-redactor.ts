@@ -3,7 +3,7 @@ import { PDFDocument, PDFName } from 'pdf-lib';
 import type { PDFPageInfo } from '../hooks/usePDFParser';
 import type { DetectedEntity } from './entity-types';
 import type { TextItem } from 'pdfjs-dist/types/src/display/api';
-import type { OCRPageResult, OCRWord } from '../hooks/useOCR';
+import type { OCRLine, OCRPageResult, OCRWord } from '../hooks/useOCR';
 
 export interface BoundingBox {
   pageIndex: number;
@@ -11,6 +11,12 @@ export interface BoundingBox {
   y: number;      // PDF points, from top (canvas-style, already flipped)
   width: number;
   height: number;
+}
+
+interface TextItemRange {
+  item: TextItem;
+  start: number;
+  end: number;
 }
 
 /**
@@ -135,6 +141,97 @@ function findTextItemBounds(
   return mergeBoxes(boxes);
 }
 
+function findTextItemBoundsForEntity(
+  entity: DetectedEntity,
+  page: PDFPageInfo,
+): BoundingBox[] {
+  const targetStart = Math.max(0, entity.start - page.textStart);
+  const targetEnd = Math.min(page.textEnd, entity.end) - page.textStart;
+
+  if (targetEnd <= targetStart || targetStart < 0) {
+    return findTextItemBounds(entity.text, page.textItems, page.height);
+  }
+
+  let concat = '';
+  const itemRanges: TextItemRange[] = [];
+
+  let prevItem: TextItem | null = null;
+  for (const item of page.textItems) {
+    if (prevItem) {
+      const prevX = prevItem.transform[4];
+      const prevY = prevItem.transform[5];
+      const curX = item.transform[4];
+      const curY = item.transform[5];
+      const lineHeight = Math.abs(prevItem.transform[3]) || 12;
+
+      if (Math.abs(curY - prevY) > lineHeight * 0.5) {
+        if (!concat.endsWith('\n')) concat += '\n';
+      } else {
+        const prevEnd = prevX + prevItem.width;
+        const gap = curX - prevEnd;
+        const avgCharWidth = prevItem.str.length > 0
+          ? prevItem.width / prevItem.str.length
+          : lineHeight * 0.5;
+        if (gap > avgCharWidth * 1.5 && !prevItem.str.endsWith(' ') && !item.str.startsWith(' ')) {
+          concat += ' ';
+        }
+      }
+    }
+
+    const start = concat.length;
+    concat += item.str;
+    itemRanges.push({ item, start, end: concat.length });
+    if (item.hasEOL) {
+      concat += '\n';
+    }
+    prevItem = item;
+  }
+
+  const boxes: BoundingBox[] = [];
+  const boundedEnd = Math.min(targetEnd, concat.length);
+
+  for (const range of itemRanges) {
+    if (range.end <= targetStart || range.start >= boundedEnd) continue;
+
+    const item = range.item;
+    const fontSize = Math.abs(item.transform[3]) || 12;
+    const itemX = item.transform[4];
+    const itemY = item.transform[5];
+
+    const overlapStart = Math.max(0, targetStart - range.start);
+    const overlapEnd = Math.min(item.str.length, boundedEnd - range.start);
+    const coversFullItem = overlapStart === 0 && overlapEnd === item.str.length;
+
+    let boxX: number;
+    let boxWidth: number;
+
+    if (coversFullItem) {
+      boxX = itemX;
+      boxWidth = item.width;
+    } else {
+      const charWidth = item.str.length > 0 ? item.width / item.str.length : fontSize * 0.6;
+      boxX = itemX + overlapStart * charWidth;
+      boxWidth = (overlapEnd - overlapStart) * charWidth;
+    }
+
+    const hPad = fontSize * 0.1;
+    boxX -= hPad;
+    boxWidth += hPad * 2;
+
+    boxes.push({
+      pageIndex: page.pageIndex,
+      x: boxX,
+      y: page.height - itemY - fontSize,
+      width: boxWidth,
+      height: fontSize * 1.4,
+    });
+  }
+
+  return boxes.length > 0
+    ? mergeBoxes(boxes)
+    : findTextItemBounds(entity.text, page.textItems, page.height);
+}
+
 /**
  * Merge overlapping or adjacent bounding boxes on the same line.
  */
@@ -193,6 +290,7 @@ function editDistance(a: string, b: string): number {
 function findOCRTextBounds(
   entityText: string,
   ocrWords: OCRWord[],
+  occurrenceIndex?: number,
 ): BoundingBox[] {
   const boxes: BoundingBox[] = [];
   const entityLower = entityText.toLowerCase().trim();
@@ -215,6 +313,11 @@ function findOCRTextBounds(
     }
   };
 
+  const shouldUseOccurrence = (matchIndex: number) =>
+    occurrenceIndex === undefined || matchIndex === occurrenceIndex;
+
+  let matchIndex = 0;
+
   // 1. Exact match: concatenated OCR words === entity text
   for (let start = 0; start < wordsClean.length; start++) {
     let concat = '';
@@ -222,18 +325,26 @@ function findOCRTextBounds(
       if (end > start) concat += ' ';
       concat += wordTexts[end];
       if (concat.toLowerCase() === entityLower) {
-        addWordBoxes(start, end);
-        return mergeBoxes(boxes);
+        if (shouldUseOccurrence(matchIndex)) {
+          addWordBoxes(start, end);
+        }
+        matchIndex++;
+        break;
       }
       if (concat.length > entityLower.length + 10) break;
     }
   }
+  if (boxes.length > 0) return mergeBoxes(boxes);
 
   // 2. Single-word containment (email, SSN as one token)
+  matchIndex = 0;
   for (const w of wordsClean) {
     if (w.text.toLowerCase().includes(entityLower)) {
-      boxes.push({ pageIndex: 0, x: w.bbox.x0, y: w.bbox.y0,
-        width: w.bbox.x1 - w.bbox.x0, height: w.bbox.y1 - w.bbox.y0 });
+      if (shouldUseOccurrence(matchIndex)) {
+        boxes.push({ pageIndex: 0, x: w.bbox.x0, y: w.bbox.y0,
+          width: w.bbox.x1 - w.bbox.x0, height: w.bbox.y1 - w.bbox.y0 });
+      }
+      matchIndex++;
     }
   }
   if (boxes.length > 0) return mergeBoxes(boxes);
@@ -241,6 +352,7 @@ function findOCRTextBounds(
   // 3. Near-match: compare entity words against consecutive OCR words using
   //    edit distance. Handles LLM hallucinating slightly different text
   //    (e.g., "BHUICYAN" vs OCR's "BHUIYAN").
+  matchIndex = 0;
   for (let si = 0; si <= wordsClean.length - entityWords.length; si++) {
     let allMatch = true;
     let totalDist = 0;
@@ -253,26 +365,132 @@ function findOCRTextBounds(
       totalDist += dist;
     }
     if (allMatch && totalDist <= Math.max(3, Math.ceil(entityLower.length * 0.2))) {
-      addWordBoxes(si, si + entityWords.length - 1);
-      return mergeBoxes(boxes);
+      if (shouldUseOccurrence(matchIndex)) {
+        addWordBoxes(si, si + entityWords.length - 1);
+        return mergeBoxes(boxes);
+      }
+      matchIndex++;
     }
   }
 
   // 4. Substring: entity is contained within concatenated neighbors
+  matchIndex = 0;
   for (let start = 0; start < wordsClean.length; start++) {
     let concat = '';
     for (let end = start; end < Math.min(start + 10, wordsClean.length); end++) {
       if (end > start) concat += ' ';
       concat += wordTexts[end];
       if (concat.toLowerCase().includes(entityLower)) {
-        addWordBoxes(start, end);
-        return mergeBoxes(boxes);
+        if (shouldUseOccurrence(matchIndex)) {
+          addWordBoxes(start, end);
+          return mergeBoxes(boxes);
+        }
+        matchIndex++;
+        break;
       }
       if (concat.length > entityLower.length + 20) break;
     }
   }
 
   return mergeBoxes(boxes);
+}
+
+function findOCRLineBounds(
+  entityText: string,
+  ocrLines: OCRLine[],
+  occurrenceIndex?: number,
+  relativeStart?: number,
+  relativeEnd?: number,
+): BoundingBox[] {
+  const entityLower = entityText.toLowerCase().trim();
+  if (!entityLower || ocrLines.length === 0) return [];
+
+  if (relativeStart !== undefined && relativeEnd !== undefined) {
+    const targetLine = ocrLines.find((line) =>
+      line.textStart !== undefined &&
+      line.textEnd !== undefined &&
+      relativeStart < line.textEnd &&
+      relativeEnd > line.textStart
+    );
+
+    if (targetLine?.textStart !== undefined) {
+      const lineLower = targetLine.text.toLowerCase();
+      const localStart = Math.max(0, relativeStart - targetLine.textStart);
+      let idx = lineLower.indexOf(entityLower, localStart);
+      if (idx === -1) {
+        idx = lineLower.indexOf(entityLower);
+      }
+
+      if (idx !== -1) {
+        const lineWidth = targetLine.bbox.x1 - targetLine.bbox.x0;
+        const avgCharWidth = targetLine.text.length > 0 ? lineWidth / targetLine.text.length : lineWidth;
+        const hPad = Math.max(1, avgCharWidth * 0.5);
+        const x = targetLine.bbox.x0 + idx * avgCharWidth - hPad;
+        const width = entityText.length * avgCharWidth + hPad * 2;
+
+        return [{
+          pageIndex: 0,
+          x,
+          y: targetLine.bbox.y0,
+          width,
+          height: targetLine.bbox.y1 - targetLine.bbox.y0,
+        }];
+      }
+    }
+  }
+
+  let matchIndex = 0;
+  for (const line of ocrLines) {
+    const lineLower = line.text.toLowerCase();
+    let searchFrom = 0;
+    while (searchFrom < lineLower.length) {
+      const idx = lineLower.indexOf(entityLower, searchFrom);
+      if (idx === -1) break;
+
+      if (occurrenceIndex === undefined || matchIndex === occurrenceIndex) {
+        const lineWidth = line.bbox.x1 - line.bbox.x0;
+        const avgCharWidth = line.text.length > 0 ? lineWidth / line.text.length : lineWidth;
+        const hPad = Math.max(1, avgCharWidth * 0.5);
+        const x = line.bbox.x0 + idx * avgCharWidth - hPad;
+        const width = entityText.length * avgCharWidth + hPad * 2;
+
+        return [{
+          pageIndex: 0,
+          x,
+          y: line.bbox.y0,
+          width,
+          height: line.bbox.y1 - line.bbox.y0,
+        }];
+      }
+
+      matchIndex++;
+      searchFrom = idx + 1;
+    }
+  }
+
+  return [];
+}
+
+function getOccurrenceIndexInText(text: string, entityText: string, relativeStart: number): number | undefined {
+  const haystack = text.toLowerCase();
+  const needle = entityText.toLowerCase();
+  if (!needle) return undefined;
+
+  let occurrenceIndex = 0;
+  let searchFrom = 0;
+  while (searchFrom < haystack.length) {
+    const idx = haystack.indexOf(needle, searchFrom);
+    if (idx === -1) break;
+    if (idx >= relativeStart) return occurrenceIndex;
+    occurrenceIndex++;
+    searchFrom = idx + 1;
+  }
+
+  return undefined;
+}
+
+function boxesOverlapVertically(boxes: BoundingBox[], target: BoundingBox): boolean {
+  return boxes.some((box) => box.y < target.y + target.height && box.y + box.height > target.y);
 }
 
 export interface EntityOverlay {
@@ -288,7 +506,7 @@ export function mapEntityToBoundsOnPage(
   entity: DetectedEntity,
   page: PDFPageInfo,
 ): BoundingBox[] {
-  const boxes = findTextItemBounds(entity.text, page.textItems, page.height);
+  const boxes = findTextItemBoundsForEntity(entity, page);
   for (const box of boxes) {
     box.pageIndex = page.pageIndex;
   }
@@ -302,20 +520,35 @@ export function mapEntityToBoundsOnPage(
 export function getPageEntityOverlays(
   entities: DetectedEntity[],
   page: PDFPageInfo,
-  ocrWords?: OCRWord[],
+  ocrPage?: OCRPageResult,
 ): EntityOverlay[] {
   const overlays: EntityOverlay[] = [];
   const isScannedPage = page.textItems.length === 0;
+  const hasOCRPageOffsets = ocrPage?.textStart !== undefined && ocrPage.textEnd !== undefined;
 
   // For scanned pages, all entities are candidates (no text offsets to filter by)
-  const pageEntities = isScannedPage
+  const pageEntities = hasOCRPageOffsets
+    ? entities.filter((e) => e.start < ocrPage!.textEnd! && e.end > ocrPage!.textStart!)
+    : isScannedPage
     ? entities
     : entities.filter((e) => e.start < page.textEnd && e.end > page.textStart);
 
   for (const entity of pageEntities) {
     let boxes: BoundingBox[];
-    if (isScannedPage && ocrWords && ocrWords.length > 0) {
-      boxes = findOCRTextBounds(entity.text, ocrWords);
+    if (ocrPage && ocrPage.words.length > 0) {
+      const occurrenceIndex = hasOCRPageOffsets
+        ? getOccurrenceIndexInText(ocrPage.text, entity.text, entity.start - ocrPage.textStart!)
+        : undefined;
+      boxes = findOCRTextBounds(entity.text, ocrPage.words, occurrenceIndex);
+      const relativeStart = hasOCRPageOffsets ? entity.start - ocrPage.textStart! : undefined;
+      const relativeEnd = hasOCRPageOffsets ? entity.end - ocrPage.textStart! : undefined;
+      const lineBoxes = findOCRLineBounds(entity.text, ocrPage.lines, occurrenceIndex, relativeStart, relativeEnd);
+      if (lineBoxes.length > 0 && (boxes.length === 0 || !boxesOverlapVertically(boxes, lineBoxes[0]))) {
+        boxes = lineBoxes;
+      }
+      if (boxes.length === 0 && page.textItems.length > 0) {
+        boxes = findTextItemBounds(entity.text, page.textItems, page.height);
+      }
       for (const box of boxes) {
         box.pageIndex = page.pageIndex;
       }
@@ -344,11 +577,7 @@ export function mapEntitiesToBounds(
     const entityPages = findEntityPages(entity, pages);
 
     for (const page of entityPages) {
-      const boxes = findTextItemBounds(
-        entity.text,
-        page.textItems,
-        page.height,
-      );
+      const boxes = findTextItemBoundsForEntity(entity, page);
 
       const existing = pageBoxes.get(page.pageIndex) || [];
       for (const box of boxes) {
@@ -449,21 +678,41 @@ export async function createRedactedPDF(
     const isScannedPage = pages[i] && pages[i].textItems.length === 0;
     const ocrPage = ocrByPage.get(i);
 
-    // For scanned pages with OCR data, map accepted entities to OCR bounding boxes
-    if (isScannedPage && ocrPage && ocrPage.words.length > 0 && boxes.length === 0) {
+    // For pages with OCR data, map accepted entities using OCR offsets/word boxes.
+    // OCR detection text has its own offsets, so pdfjs text offsets may not line up.
+    if (ocrPage && ocrPage.words.length > 0) {
+      const hasOCRPageOffsets = ocrPage.textStart !== undefined && ocrPage.textEnd !== undefined;
       const ocrBoxes: BoundingBox[] = [];
-      console.log(`[LocalRedact] Page ${i + 1}: OCR has ${ocrPage.words.length} words. Mapping ${accepted.length} accepted entities...`);
-      for (const entity of accepted) {
-        const entityBoxes = findOCRTextBounds(entity.text, ocrPage.words);
+      const pageAccepted = hasOCRPageOffsets
+        ? accepted.filter((e) => e.start < ocrPage.textEnd! && e.end > ocrPage.textStart!)
+        : accepted;
+
+      console.log(`[LocalRedact] Page ${i + 1}: OCR has ${ocrPage.words.length} words. Mapping ${pageAccepted.length} accepted entities...`);
+      for (const entity of pageAccepted) {
+        const occurrenceIndex = hasOCRPageOffsets
+          ? getOccurrenceIndexInText(ocrPage.text, entity.text, entity.start - ocrPage.textStart!)
+          : undefined;
+        let entityBoxes = findOCRTextBounds(entity.text, ocrPage.words, occurrenceIndex);
+        const relativeStart = hasOCRPageOffsets ? entity.start - ocrPage.textStart! : undefined;
+        const relativeEnd = hasOCRPageOffsets ? entity.end - ocrPage.textStart! : undefined;
+        const lineBoxes = findOCRLineBounds(entity.text, ocrPage.lines, occurrenceIndex, relativeStart, relativeEnd);
+        if (lineBoxes.length > 0 && (entityBoxes.length === 0 || !boxesOverlapVertically(entityBoxes, lineBoxes[0]))) {
+          entityBoxes = lineBoxes;
+        }
+        if (entityBoxes.length === 0 && pages[i].textItems.length > 0) {
+          entityBoxes = findTextItemBounds(entity.text, pages[i].textItems, pages[i].height);
+        }
         for (const box of entityBoxes) {
           box.pageIndex = i;
           ocrBoxes.push(box);
         }
       }
       if (ocrBoxes.length > 0) {
-        boxes = mergeBoxes(ocrBoxes);
-        console.log(`[LocalRedact] Page ${i + 1}: mapped ${ocrBoxes.length} OCR boxes for ${accepted.length} entities.`);
-      } else {
+        boxes = hasOCRPageOffsets || isScannedPage
+          ? mergeBoxes(ocrBoxes)
+          : mergeBoxes([...boxes, ...ocrBoxes]);
+        console.log(`[LocalRedact] Page ${i + 1}: mapped ${ocrBoxes.length} OCR boxes for ${pageAccepted.length} entities.`);
+      } else if (isScannedPage) {
         console.warn(`[LocalRedact] Page ${i + 1}: NO OCR boxes found for any entity. OCR words sample:`,
           ocrPage.words.slice(0, 20).map(w => w.text));
       }

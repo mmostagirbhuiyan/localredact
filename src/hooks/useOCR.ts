@@ -7,11 +7,22 @@ export interface OCRWord {
   confidence: number;
 }
 
+export interface OCRLine {
+  text: string;
+  bbox: { x0: number; y0: number; x1: number; y1: number };
+  confidence: number;
+  textStart?: number;
+  textEnd?: number;
+}
+
 export interface OCRPageResult {
   pageIndex: number;
   text: string;           // raw OCR text (all words)
   cleanText: string;      // filtered text (high-confidence lines only, for LLM)
   words: OCRWord[];       // all words with bboxes (for coordinate mapping)
+  lines: OCRLine[];       // line-level bboxes, fallback for large/split OCR text
+  textStart?: number;     // char offset in combined OCR detection text
+  textEnd?: number;       // char offset in combined OCR detection text
 }
 
 interface OCRState {
@@ -80,12 +91,33 @@ export function useOCR() {
     const result = await worker.recognize(canvas, {}, { blocks: true });
 
     const words: OCRWord[] = [];
+    const lines: OCRLine[] = [];
     const cleanLines: string[] = [];
 
     if (result.data.blocks) {
+      let textSearchFrom = 0;
       for (const block of result.data.blocks) {
         for (const para of block.paragraphs) {
           for (const line of para.lines) {
+            const lineBBox = (line as { bbox?: { x0: number; y0: number; x1: number; y1: number } }).bbox;
+            const avgConf = line.words.length > 0
+              ? line.words.reduce((s, w) => s + w.confidence, 0) / line.words.length
+              : 0;
+            if (line.text.trim().length > 0 && lineBBox) {
+              const textStart = result.data.text.indexOf(line.text, textSearchFrom);
+              const textEnd = textStart >= 0 ? textStart + line.text.length : undefined;
+              if (textEnd !== undefined) {
+                textSearchFrom = textEnd;
+              }
+              lines.push({
+                text: line.text,
+                bbox: { x0: lineBBox.x0, y0: lineBBox.y0, x1: lineBBox.x1, y1: lineBBox.y1 },
+                confidence: avgConf / 100,
+                textStart: textStart >= 0 ? textStart : undefined,
+                textEnd,
+              });
+            }
+
             for (const w of line.words) {
               words.push({
                 text: w.text,
@@ -96,7 +128,6 @@ export function useOCR() {
             // Only include lines where the average word confidence is decent.
             // Low-confidence lines are watermarks, holograms, background noise.
             if (line.words.length > 0) {
-              const avgConf = line.words.reduce((s, w) => s + w.confidence, 0) / line.words.length;
               if (avgConf >= 50) {
                 cleanLines.push(line.text.trim());
               }
@@ -113,6 +144,7 @@ export function useOCR() {
       text: result.data.text,
       cleanText,
       words,
+      lines,
     };
   }, []);
 
@@ -237,6 +269,29 @@ export function useOCR() {
           word.bbox.y0 /= OCR_RENDER_SCALE;
           word.bbox.x1 /= OCR_RENDER_SCALE;
           word.bbox.y1 /= OCR_RENDER_SCALE;
+        }
+      }
+
+      for (const line of pageResult.lines) {
+        if (rotationUsed === 'cw') {
+          const rx0 = line.bbox.x0, ry0 = line.bbox.y0;
+          const rx1 = line.bbox.x1, ry1 = line.bbox.y1;
+          line.bbox.x0 = ry0 / OCR_RENDER_SCALE;
+          line.bbox.y0 = (ch - rx1) / OCR_RENDER_SCALE;
+          line.bbox.x1 = ry1 / OCR_RENDER_SCALE;
+          line.bbox.y1 = (ch - rx0) / OCR_RENDER_SCALE;
+        } else if (rotationUsed === 'ccw') {
+          const rx0 = line.bbox.x0, ry0 = line.bbox.y0;
+          const rx1 = line.bbox.x1, ry1 = line.bbox.y1;
+          line.bbox.x0 = (cw - ry1) / OCR_RENDER_SCALE;
+          line.bbox.y0 = rx0 / OCR_RENDER_SCALE;
+          line.bbox.x1 = (cw - ry0) / OCR_RENDER_SCALE;
+          line.bbox.y1 = rx1 / OCR_RENDER_SCALE;
+        } else {
+          line.bbox.x0 /= OCR_RENDER_SCALE;
+          line.bbox.y0 /= OCR_RENDER_SCALE;
+          line.bbox.x1 /= OCR_RENDER_SCALE;
+          line.bbox.y1 /= OCR_RENDER_SCALE;
         }
       }
 

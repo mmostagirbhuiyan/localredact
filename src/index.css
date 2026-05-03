@@ -55,6 +55,8 @@
   --pii-email-phone-soft: rgba(168, 85, 247, 0.15);
   --pii-date: #14B8A6;
   --pii-date-soft: rgba(20, 184, 166, 0.15);
+  --pii-custom: #EC4899;
+  --pii-custom-soft: rgba(236, 72, 153, 0.15);
 }
 
 /* === LIGHT MODE === */
@@ -105,6 +107,8 @@
   --pii-email-phone-soft: rgba(147, 51, 234, 0.12);
   --pii-date: #0D9488;
   --pii-date-soft: rgba(13, 148, 136, 0.12);
+  --pii-custom: #DB2777;
+  --pii-custom-soft: rgba(219, 39, 119, 0.12);
 }
 
 /* === BASE STYLES === */
