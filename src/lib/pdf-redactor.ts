@@ -401,6 +401,7 @@ function findOCRLineBounds(
   occurrenceIndex?: number,
   relativeStart?: number,
   relativeEnd?: number,
+  pageIndex = 0,
 ): BoundingBox[] {
   const entityLower = entityText.toLowerCase().trim();
   if (!entityLower || ocrLines.length === 0) return [];
@@ -429,7 +430,7 @@ function findOCRLineBounds(
         const width = entityText.length * avgCharWidth + hPad * 2;
 
         return [{
-          pageIndex: 0,
+          pageIndex,
           x,
           y: targetLine.bbox.y0,
           width,
@@ -455,7 +456,7 @@ function findOCRLineBounds(
         const width = entityText.length * avgCharWidth + hPad * 2;
 
         return [{
-          pageIndex: 0,
+          pageIndex,
           x,
           y: line.bbox.y0,
           width,

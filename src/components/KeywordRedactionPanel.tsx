@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Plus, Tags } from 'lucide-react';
 import type { KeywordMatchSummary } from '../lib/keyword-matcher';
 
@@ -16,9 +16,14 @@ export const KeywordRedactionPanel: React.FC<KeywordRedactionPanelProps> = ({
   const [wholeWord, setWholeWord] = useState(true);
   const [summary, setSummary] = useState<KeywordMatchSummary | null>(null);
 
+  useEffect(() => {
+    if (disabled) setSummary(null);
+  }, [disabled]);
+
   const handleSubmit = () => {
     if (!keywords.trim() || disabled) return;
     setSummary(onAddKeywords(keywords, { caseSensitive, wholeWord }));
+    setKeywords('');
   };
 
   return (
