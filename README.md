@@ -53,8 +53,10 @@ Detect and redact PII from PDFs and text — names, SSNs, addresses, dates, phon
 npm install
 npm run dev      # Dev server
 npm run build    # Production build
-npm run test     # 80 tests
+npm run test     # Run tests
 ```
+
+**Build note:** The production build requires a WebGPU-capable environment for the `@mlc-ai/web-llm` dependency to resolve correctly. If you see a Rollup error about `@mlc-ai/web-llm` during `npm run build`, this is expected on machines without WebGPU support (e.g., CI runners, headless servers). The dev server (`npm run dev`) works regardless, and Cloudflare Pages builds succeed in production.
 
 ## Architecture
 
